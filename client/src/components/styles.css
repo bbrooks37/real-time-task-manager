@@ -1,0 +1,33 @@
+/* client/src/styles.css */
+
+/* Add any custom CSS here if needed, beyond Tailwind's utilities. */
+/* For example, specific transitions or custom component styles not covered by Tailwind. */
+
+/* Basic body styling for centering and font */
+body {
+    font-family: 'Inter', sans-serif; /* Ensuring Inter font is applied */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Hide scrollbar for elements that might overflow but don't need a visible scroll */
+.hide-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+}
+
+/* Simple animation for message display */
+@keyframes fade-in-out {
+    0% { opacity: 0; transform: translateY(20px); }
+    10% { opacity: 1; transform: translateY(0); }
+    90% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(20px); }
+}
+
+.message-fade {
+    animation: fade-in-out 3s ease-in-out forwards;
+}

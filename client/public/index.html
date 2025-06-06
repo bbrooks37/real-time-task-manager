@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Task Manager</title>
+    <!-- Link to your main stylesheet -->
+    <link rel="stylesheet" href="../src/styles.css">
+    <!-- Tailwind CSS CDN for easy styling - ensures responsive design out of the box -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom font import for better aesthetics */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+    <div id="app" class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md md:max-w-xl lg:max-w-3xl">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Real-time Task Manager</h1>
+        
+        <!-- Authentication Section -->
+        <div id="auth-section" class="mb-8">
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4 text-center">User Authentication</h2>
+            <div id="auth-forms" class="space-y-4">
+                <div id="register-form" class="bg-blue-50 p-6 rounded-md shadow-inner">
+                    <h3 class="text-xl font-medium text-blue-700 mb-3">Register</h3>
+                    <input type="text" id="register-username" placeholder="Username" class="w-full p-3 mb-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    <input type="email" id="register-email" placeholder="Email" class="w-full p-3 mb-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    <input type="password" id="register-password" placeholder="Password" class="w-full p-3 mb-4 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    <button id="register-btn" class="w-full bg-blue-600 text-white p-3 rounded-md hover:bg-blue-700 transition duration-300 shadow-md">Register</button>
+                    <p class="text-sm text-gray-600 mt-2 text-center">Already have an account? <button id="show-login-btn" class="text-blue-600 font-medium hover:underline">Login here</button></p>
+                </div>
+
+                <div id="login-form" class="bg-green-50 p-6 rounded-md shadow-inner hidden">
+                    <h3 class="text-xl font-medium text-green-700 mb-3">Login</h3>
+                    <input type="email" id="login-email" placeholder="Email" class="w-full p-3 mb-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500">
+                    <input type="password" id="login-password" placeholder="Password" class="w-full p-3 mb-4 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500">
+                    <button id="login-btn" class="w-full bg-green-600 text-white p-3 rounded-md hover:bg-green-700 transition duration-300 shadow-md">Login</button>
+                    <p class="text-sm text-gray-600 mt-2 text-center">New user? <button id="show-register-btn" class="text-green-600 font-medium hover:underline">Register here</button></p>
+                </div>
+            </div>
+            <div id="auth-message" class="mt-4 text-center text-red-600"></div>
+        </div>
+
+        <!-- Main Application Section (Hidden initially) -->
+        <div id="main-app-section" class="hidden">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-semibold text-gray-700">Welcome, <span id="welcome-username" class="text-blue-600">Guest</span>!</h2>
+                <button id="logout-btn" class="bg-red-500 text-white p-2 rounded-md hover:bg-red-600 transition duration-300 shadow-md">Logout</button>
+            </div>
+
+            <!-- Projects Section -->
+            <div id="projects-section" class="mb-8 p-6 bg-purple-50 rounded-lg shadow-inner">
+                <h3 class="text-xl font-semibold text-purple-700 mb-4">Your Projects</h3>
+                <form id="create-project-form" class="flex gap-2 mb-4">
+                    <input type="text" id="project-name" placeholder="New Project Name" class="flex-grow p-2 border border-gray-300 rounded-md">
+                    <button type="submit" class="bg-purple-600 text-white p-2 rounded-md hover:bg-purple-700 transition duration-300 shadow-md">Add Project</button>
+                </form>
+                <div id="projects-list" class="space-y-3">
+                    <!-- Projects will be dynamically loaded here -->
+                    <p class="text-gray-500 text-center" id="no-projects-message">No projects yet. Create one!</p>
+                </div>
+            </div>
+
+            <!-- Tasks Section -->
+            <div id="tasks-section" class="p-6 bg-yellow-50 rounded-lg shadow-inner">
+                <h3 class="text-xl font-semibold text-yellow-700 mb-4">Tasks (<span id="current-project-name">All Projects</span>)</h3>
+                <form id="create-task-form" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <input type="text" id="task-title" placeholder="Task Title" class="p-2 border border-gray-300 rounded-md col-span-full">
+                    <textarea id="task-description" placeholder="Description (optional)" class="p-2 border border-gray-300 rounded-md h-20"></textarea>
+                    <input type="date" id="task-due-date" class="p-2 border border-gray-300 rounded-md">
+                    <select id="task-priority" class="p-2 border border-gray-300 rounded-md">
+                        <option value="low">Low Priority</option>
+                        <option value="medium" selected>Medium Priority</option>
+                        <option value="high">High Priority</option>
+                        <option value="urgent">Urgent Priority</option>
+                    </select>
+                    <select id="task-status" class="p-2 border border-gray-300 rounded-md">
+                        <option value="pending">Pending</option>
+                        <option value="in-progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="blocked">Blocked</option>
+                        <option value="archived">Archived</option>
+                    </select>
+                    <select id="task-assigned-to" class="p-2 border border-gray-300 rounded-md">
+                        <option value="">Assign to...</option>
+                        <!-- Users will be dynamically loaded here -->
+                    </select>
+                    <select id="task-project-id" class="p-2 border border-gray-300 rounded-md" required>
+                        <option value="">Select Project...</option>
+                        <!-- Projects for task assignment will be dynamically loaded here -->
+                    </select>
+                    <input type="number" id="task-parent-task-id" placeholder="Parent Task ID (for subtask)" class="p-2 border border-gray-300 rounded-md">
+                    <button type="submit" class="bg-yellow-600 text-white p-2 rounded-md hover:bg-yellow-700 transition duration-300 shadow-md col-span-full">Add Task</button>
+                </form>
+                <div id="tasks-list" class="space-y-3">
+                    <!-- Tasks will be dynamically loaded here -->
+                    <p class="text-gray-500 text-center" id="no-tasks-message">No tasks for this project yet. Create one!</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Global message display area -->
+        <div id="global-message" class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-center p-3 rounded-md shadow-lg hidden"></div>
+
+    </div>
+
+    <!-- Socket.IO client library -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <!-- Your main application JavaScript -->
+    <script src="../src/index.js"></script>
+</body>
+</html>
