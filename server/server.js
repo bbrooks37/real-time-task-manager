@@ -8,7 +8,8 @@ const db = require('./db');
 const authRoutes = require('./routes/authRoutes'); 
 const projectRoutes = require('./routes/projectRoutes'); 
 const taskRoutes = require('./routes/taskRoutes'); 
-const userRoutes = require('./routes/userRoutes'); // Import user routes
+const userRoutes = require('./routes/userRoutes'); 
+const tagRoutes = require('./routes/tagRoutes'); // NEW: Import tag routes
 
 // Load environment variables from .env file in the project root
 dotenv.config({ path: '../.env' }); 
@@ -29,12 +30,13 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --- Serve Static Frontend Files ---
-// Point to the 'client' directory as the static root
-app.use(express.static(path.join(__dirname, '../client/public'))); // Serve from public folder
-app.use('/src', express.static(path.join(__dirname, '../client/src'))); // Serve src folder for index.js and styles.css
-
+// Point to the 'client/public' directory as the static root for index.html and other public assets
+app.use(express.static(path.join(__dirname, '../client/public'))); 
+// Serve the 'client/src' directory for bundled JS/CSS if needed directly (e.g., index.js, styles.css)
+app.use('/src', express.static(path.join(__dirname, '../client/src'))); 
 
 // Serve the main index.html file for the root route (e.g., http://localhost:5000/)
+// This will serve the index.html from client/public
 app.get('/', (req, res) => { 
     res.sendFile(path.join(__dirname, '../client/public/index.html'));
 });
@@ -54,8 +56,8 @@ db.query('SELECT NOW() AS current_time')
 app.use('/api/auth', authRoutes(io)); 
 app.use('/api/projects', projectRoutes(io)); 
 app.use('/api/tasks', taskRoutes(io)); 
-app.use('/api/users', userRoutes(io)); // Mount user routes under the /api/users path
-
+app.use('/api/users', userRoutes(io)); 
+app.use('/api/tags', tagRoutes(io)); // Mount tag routes
 
 // Socket.IO Connection Handling
 io.on('connection', (socket) => {

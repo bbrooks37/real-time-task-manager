@@ -26,8 +26,9 @@ module.exports = (io) => {
         }
 
         try {
+            // FIX: Removed duplicate 'description' column from the INSERT query
             const newProject = await db.query(
-                `INSERT INTO projects (name, description, description, created_by) VALUES ($1, $2, $3) RETURNING id, name, description, created_by`,
+                `INSERT INTO projects (name, description, created_by) VALUES ($1, $2, $3) RETURNING id, name, description, created_by`,
                 [name, description, created_by]
             );
             emitProjectEvent('projectCreated', newProject.rows[0]);
