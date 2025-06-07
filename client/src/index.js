@@ -109,7 +109,13 @@ async function handleRegister(e) {
         registerEmail.value = '';
         registerPassword.value = '';
     } catch (error) {
-        showAuthMessage(error.message);
+        // Check if the error object has an 'errors' array from express-validator
+        if (error.errors && Array.isArray(error.errors)) {
+            const errorMessages = error.errors.map(err => err.msg).join('; ');
+            showAuthMessage(`Validation failed: ${errorMessages}`);
+        } else {
+            showAuthMessage(error.message);
+        }
     }
 }
 
@@ -274,20 +280,21 @@ function populateProjectDropdowns(projects) {
 let allUsers = []; // Store all users for dropdown
 async function fetchUsersForAssignment() {
     try {
-        const data = await fetchData('/users'); // Assuming you'll add this endpoint later
-        allUsers = data.users;
-        if (taskAssignedToSelect) { // Guard clause
-            taskAssignedToSelect.innerHTML = '<option value="">Assign to...</option>';
+        const data = await fetchData('/users'); // Fetch users from the new /api/users endpoint
+        allUsers = data.users; // Store fetched users
+        if (taskAssignedToSelect) { // Ensure dropdown element exists
+            taskAssignedToSelect.innerHTML = '<option value="">Assign to...</option>'; // Clear existing options
             allUsers.forEach(user => {
                 const option = document.createElement('option');
-                option.value = user.id;
-                option.textContent = user.username;
+                option.value = user.id; // Use user ID as the value
+                option.textContent = user.username; // Display username
                 taskAssignedToSelect.appendChild(option);
             });
         }
     } catch (error) {
         console.warn('Could not fetch users for assignment. Skipping user dropdown population. Error:', error.message);
-        // Fallback or just ignore if /users endpoint is not critical yet
+        // Display a message to the user if this is a critical part of the UI
+        showMessage(`Could not load users for assignment: ${error.message}`, 'error');
     }
 }
 
@@ -330,7 +337,7 @@ function renderTask(task) {
     taskDiv.innerHTML = `
         <div class="flex-grow">
             <h4 class="text-lg font-semibold text-gray-800">${task.title}</h4>
-            <p class="text-sm text-gray-600">${task.description || 'No description'}</p>
+            <p class="text-sm text-gray-600 mb-2">${task.description || 'No description'}</p>
             <p class="text-xs text-gray-500 mb-2">
                 Due: ${task.due_date ? new Date(task.due_date).toLocaleDateString() : 'N/A'} |
                 Priority: <span class="font-medium text-${getPriorityColor(task.priority)}">${task.priority}</span> |
@@ -374,7 +381,8 @@ async function handleCreateTask(e) {
     const due_date = taskDueDateInput.value || null;
     const priority = taskPrioritySelect.value;
     const status = taskStatusSelect.value;
-    const assigned_to = taskAssignedToSelect.value || null;
+    // Get the selected assigned_to user ID
+    const assigned_to = taskAssignedToSelect.value || null; 
     const project_id = taskProjectIdSelect.value;
     const parent_task_id = taskParentTaskIdInput.value || null;
 
@@ -386,7 +394,7 @@ async function handleCreateTask(e) {
     try {
         await fetchData('/tasks', 'POST', {
             title, description, due_date, priority, status,
-            assigned_to: assigned_to ? parseInt(assigned_to) : null,
+            assigned_to: assigned_to ? parseInt(assigned_to) : null, // Ensure ID is integer or null
             project_id: parseInt(project_id),
             parent_task_id: parent_task_id ? parseInt(parent_task_id) : null
         });
@@ -401,6 +409,10 @@ async function handleCreateTask(e) {
 
 async function updateTask(id, updates) {
     try {
+        // Ensure assigned_to is parsed if present in updates object
+        if (updates.assigned_to !== undefined && updates.assigned_to !== null) {
+            updates.assigned_to = updates.assigned_to ? parseInt(updates.assigned_to) : null;
+        }
         await fetchData(`/tasks/${id}`, 'PUT', updates);
         showMessage('Task updated!', 'success');
         // Task list will be updated by Socket.IO event
@@ -571,7 +583,7 @@ document.addEventListener('DOMContentLoaded', () => {
     taskDueDateInput = document.getElementById('task-due-date');
     taskPrioritySelect = document.getElementById('task-priority');
     taskStatusSelect = document.getElementById('task-status');
-    taskAssignedToSelect = document.getElementById('task-assigned-to');
+    taskAssignedToSelect = document.getElementById('task-assigned-to'); // This dropdown
     taskProjectIdSelect = document.getElementById('task-project-id');
     taskParentTaskIdInput = document.getElementById('task-parent-task-id');
     tasksList = document.getElementById('tasks-list');

@@ -1,78 +1,68 @@
 // project1/server/controllers/taskController.js
-const db = require('../db'); // Import the database connection pool
+const db = require('../db');
+const { validationResult } = require('express-validator');
 
-// Load environment variables for JWT_SECRET and salt rounds for bcrypt
-// Adjust path as per your .env location (assuming it's in the project root)
-require('dotenv').config({ path: '../../.env' }); 
+module.exports = (io) => {
+    // Helper function to emit Socket.IO events for tasks
+    const emitTaskEvent = (eventName, task) => {
+        io.emit(eventName, { task: task });
+        console.log(`Socket.IO: Emitted '${eventName}' for task ID: ${task.id}`);
+    };
 
-// Export a function that receives io
-module.exports = (io) => { // <--- THIS LINE IS CRUCIAL FOR RECEIVING 'io'
-    // --- Create a New Task ---
+    // --- Create Task ---
     const createTask = async (req, res) => {
-        const { title, description, due_date, priority, status, assigned_to, project_id, parent_task_id } = req.body;
-        const created_by = req.user.user_id; // From authenticated user
-
-        // Basic validation
-        if (!title || !project_id) {
-            return res.status(400).json({ message: 'Task title and project_id are required.' });
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ message: 'Validation failed.', errors: errors.array() });
         }
 
+        const { title, description, due_date, priority, status, assigned_to, project_id, parent_task_id } = req.body;
+        const creator_id = req.user.user_id; // Get creator_id from authenticated user
+
         try {
-            const newTaskResult = await db.query(
-                `INSERT INTO tasks (title, description, due_date, priority, status, assigned_to, project_id, parent_task_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                 RETURNING id, title, description, due_date, priority, status, assigned_to, project_id, parent_task_id, created_at, updated_at`,
-                [title, description, due_date, priority, status, assigned_to, project_id, parent_task_id]
+            const newTask = await db.query(
+                `INSERT INTO tasks (title, description, due_date, priority, status, assigned_to, project_id, parent_task_id, creator_id) 
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+                [title, description, due_date, priority, status, assigned_to, project_id, parent_task_id, creator_id]
             );
-            const newTask = newTaskResult.rows[0];
-
-            // Emit a Socket.IO event after successful creation
-            io.emit('taskCreated', { task: newTask, creatorId: created_by }); 
-            console.log(`Socket.IO: Emitted 'taskCreated' for task ID: ${newTask.id}`);
-
-            res.status(201).json({
-                message: 'Task created successfully!',
-                task: newTask,
-            });
-
+            emitTaskEvent('taskCreated', newTask.rows[0]); // Emit event on creation
+            res.status(201).json({ message: 'Task created successfully!', task: newTask.rows[0] });
         } catch (error) {
             console.error('Error creating task:', error.message);
             res.status(500).json({ message: 'Internal server error during task creation.' });
         }
     };
 
-    // --- Get All Tasks --- (No change in logic, as this is a read operation)
+    // --- Get All Tasks (with user-specific filtering) ---
     const getTasks = async (req, res) => {
-        const user_id = req.user.user_id; // Authenticated user
-        const { project_id, assigned_to, status, priority, search } = req.query; // Filters from query params
+        const user_id = req.user.user_id; // Get authenticated user's ID
+        const project_id = req.query.project_id; // Optional project filter
+        const status = req.query.status;         // Optional status filter
+        const priority = req.query.priority;     // Optional priority filter
+        const assigned_to = req.query.assigned_to; // Optional assigned_to filter
+        const search = req.query.search;         // Optional search by title/description
 
         let query = `
-            SELECT
-                t.id, t.title, t.description, t.due_date, t.priority, t.status, t.created_at, t.updated_at,
-                p.id AS project_id, p.name AS project_name,
-                u_assigned.username AS assigned_to_username,
-                u_creator.username AS created_by_username,
-                (SELECT json_agg(json_build_object('id', tg.id, 'name', tg.name))
-                 FROM tags tg
-                 JOIN task_tags tt ON tg.id = tt.tag_id
-                 WHERE tt.task_id = t.id) AS tags
+            SELECT 
+                t.*,
+                p.name AS project_name,
+                u.username AS assigned_to_username,
+                ARRAY_AGG(json_build_object('id', tg.id, 'name', tg.name)) FILTER (WHERE tg.id IS NOT NULL) AS tags
             FROM tasks t
-            JOIN projects p ON t.project_id = p.id
-            LEFT JOIN users u_assigned ON t.assigned_to = u_assigned.id
-            LEFT JOIN users u_creator ON p.created_by = u_creator.id -- Assuming projects are created by users
-            WHERE p.created_by = $1 OR t.assigned_to = $1 -- User can see tasks in their projects or assigned to them
+            LEFT JOIN projects p ON t.project_id = p.id
+            LEFT JOIN users u ON t.assigned_to = u.id
+            LEFT JOIN task_tags tt ON t.id = tt.task_id
+            LEFT JOIN tags tg ON tt.tag_id = tg.id
+            WHERE 
+                t.creator_id = $1 
+                OR t.assigned_to = $1 -- Tasks created by the user or assigned to the user
         `;
         const queryParams = [user_id];
         let paramIndex = 2; // Start index for additional parameters
 
-        // Apply filters
         if (project_id) {
             query += ` AND t.project_id = $${paramIndex++}`;
             queryParams.push(project_id);
-        }
-        if (assigned_to) {
-            query += ` AND t.assigned_to = $${paramIndex++}`;
-            queryParams.push(assigned_to);
         }
         if (status) {
             query += ` AND t.status = $${paramIndex++}`;
@@ -82,235 +72,182 @@ module.exports = (io) => { // <--- THIS LINE IS CRUCIAL FOR RECEIVING 'io'
             query += ` AND t.priority = $${paramIndex++}`;
             queryParams.push(priority);
         }
+        if (assigned_to) {
+            query += ` AND t.assigned_to = $${paramIndex++}`;
+            queryParams.push(assigned_to);
+        }
         if (search) {
-            query += ` AND (t.title ILIKE $${paramIndex} OR t.description ILIKE $${paramIndex})`;
+            query += ` AND (t.title ILIKE $${paramIndex} OR t.description ILIKE $${paramIndex++})`;
             queryParams.push(`%${search}%`);
         }
 
-        query += ` ORDER BY t.due_date ASC, t.priority DESC`; // Order by due date, then priority
-
+        query += ` GROUP BY t.id, p.name, u.username ORDER BY t.due_date ASC NULLS LAST, t.priority DESC`; // Group by task ID and order
+        
         try {
             const tasks = await db.query(query, queryParams);
-
-            res.status(200).json({
-                message: 'Tasks retrieved successfully!',
-                tasks: tasks.rows,
-                count: tasks.rows.length,
-            });
-
+            res.status(200).json({ message: 'Tasks retrieved successfully!', tasks: tasks.rows });
         } catch (error) {
             console.error('Error retrieving tasks:', error.message);
             res.status(500).json({ message: 'Internal server error during task retrieval.' });
         }
     };
 
-    // --- Get Task by ID --- (No change in logic, as this is a read operation)
+    // --- Get Task by ID ---
     const getTaskById = async (req, res) => {
         const { id } = req.params;
-        const user_id = req.user.user_id;
+        const user_id = req.user.user_id; // Get authenticated user's ID
 
         try {
-            const taskResult = await db.query(
-                `SELECT
-                    t.id, t.title, t.description, t.due_date, t.priority, t.status, t.created_at, t.updated_at,
-                    p.id AS project_id, p.name AS project_name,
-                    u_assigned.username AS assigned_to_username,
-                    u_creator.username AS created_by_username,
-                    (SELECT json_agg(json_build_object('id', tg.id, 'name', tg.name))
-                     FROM tags tg
-                     JOIN task_tags tt ON tg.id = tt.tag_id
-                     WHERE tt.task_id = t.id) AS tags
+            // Ensure task belongs to the user or is assigned to them
+            const task = await db.query(
+                `SELECT 
+                    t.*,
+                    p.name AS project_name,
+                    u.username AS assigned_to_username,
+                    ARRAY_AGG(json_build_object('id', tg.id, 'name', tg.name)) FILTER (WHERE tg.id IS NOT NULL) AS tags
                 FROM tasks t
-                JOIN projects p ON t.project_id = p.id
-                LEFT JOIN users u_assigned ON t.assigned_to = u_assigned.id
-                LEFT JOIN users u_creator ON p.created_by = u_creator.id
-                WHERE t.id = $1 AND (p.created_by = $2 OR t.assigned_to = $2)`, // Ensure user has access
+                LEFT JOIN projects p ON t.project_id = p.id
+                LEFT JOIN users u ON t.assigned_to = u.id
+                LEFT JOIN task_tags tt ON t.id = tt.task_id
+                LEFT JOIN tags tg ON tt.tag_id = tg.id
+                WHERE t.id = $1 AND (t.creator_id = $2 OR t.assigned_to = $2)
+                GROUP BY t.id, p.name, u.username`,
                 [id, user_id]
             );
-            const task = taskResult.rows[0];
 
-            if (!task) {
-                return res.status(404).json({ message: 'Task not found or you do not have access.' });
+            if (task.rows.length === 0) {
+                return res.status(404).json({ message: 'Task not found or you do not have permission to access it.' });
             }
-
-            res.status(200).json({
-                message: 'Task retrieved successfully!',
-                task,
-            });
-
+            res.status(200).json({ message: 'Task retrieved successfully!', task: task.rows[0] });
         } catch (error) {
             console.error('Error retrieving task by ID:', error.message);
             res.status(500).json({ message: 'Internal server error during task retrieval.' });
         }
     };
 
-    // --- Update an Existing Task ---
+    // --- Update Task ---
     const updateTask = async (req, res) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ message: 'Validation failed.', errors: errors.array() });
+        }
+
         const { id } = req.params;
+        const user_id = req.user.user_id; // Get authenticated user's ID
         const { title, description, due_date, priority, status, assigned_to, project_id, parent_task_id } = req.body;
-        const user_id = req.user.user_id; // Authenticated user ID for permission check
 
         try {
-            // First, check if the user has permission to update this task
-            // A user can update a task if they created the project it belongs to OR they are assigned to the task.
-            const permissionCheck = await db.query(
-                `SELECT t.id FROM tasks t JOIN projects p ON t.project_id = p.id
-                 WHERE t.id = $1 AND (p.created_by = $2 OR t.assigned_to = $2)`,
-                [id, user_id]
-            );
-
-            if (permissionCheck.rows.length === 0) {
+            // First, verify the user has permission to update this task
+            const existingTask = await db.query('SELECT creator_id, assigned_to FROM tasks WHERE id = $1', [id]);
+            if (existingTask.rows.length === 0 || (existingTask.rows[0].creator_id !== user_id && existingTask.rows[0].assigned_to !== user_id)) {
                 return res.status(403).json({ message: 'You do not have permission to update this task.' });
             }
 
-            const updatedTaskResult = await db.query(
-                `UPDATE tasks
-                 SET title = COALESCE($1, title),
-                     description = COALESCE($2, description),
-                     due_date = COALESCE($3, due_date),
-                     priority = COALESCE($4, priority),
-                     status = COALESCE($5, status),
-                     assigned_to = COALESCE($6, assigned_to),
-                     project_id = COALESCE($7, project_id),
-                     parent_task_id = COALESCE($8, parent_task_id),
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $9
-                 RETURNING id, title, description, due_date, priority, status, assigned_to, project_id, parent_task_id, created_at, updated_at`,
+            const updatedTask = await db.query(
+                `UPDATE tasks SET 
+                    title = COALESCE($1, title), 
+                    description = COALESCE($2, description), 
+                    due_date = COALESCE($3, due_date), 
+                    priority = COALESCE($4, priority), 
+                    status = COALESCE($5, status), 
+                    assigned_to = COALESCE($6, assigned_to), 
+                    project_id = COALESCE($7, project_id),
+                    parent_task_id = COALESCE($8, parent_task_id),
+                    updated_at = NOW()
+                 WHERE id = $9 RETURNING *`,
                 [title, description, due_date, priority, status, assigned_to, project_id, parent_task_id, id]
             );
-            const updatedTask = updatedTaskResult.rows[0];
-
-            if (updatedTaskResult.rows.length === 0) {
-                return res.status(404).json({ message: 'Task not found.' }); // Should theoretically not happen if permissionCheck passed
-            }
-
-            // Emit a Socket.IO event after successful update
-            io.emit('taskUpdated', { task: updatedTask, updaterId: user_id });
-            console.log(`Socket.IO: Emitted 'taskUpdated' for task ID: ${updatedTask.id}`);
-
-
-            res.status(200).json({
-                message: 'Task updated successfully!',
-                task: updatedTask,
-            });
-
+            emitTaskEvent('taskUpdated', updatedTask.rows[0]); // Emit event on update
+            res.status(200).json({ message: 'Task updated successfully!', task: updatedTask.rows[0] });
         } catch (error) {
             console.error('Error updating task:', error.message);
             res.status(500).json({ message: 'Internal server error during task update.' });
         }
     };
 
-    // --- Delete a Task ---
+    // --- Delete Task ---
     const deleteTask = async (req, res) => {
         const { id } = req.params;
-        const user_id = req.user.user_id;
+        const user_id = req.user.user_id; // Get authenticated user's ID
 
         try {
-            const permissionCheck = await db.query(
-                `SELECT t.id FROM tasks t JOIN projects p ON t.project_id = p.id
-                 WHERE t.id = $1 AND p.created_by = $2`,
-                [id, user_id]
-            );
-
-            if (permissionCheck.rows.length === 0) {
+            // Only allow the task creator or assigned user to delete the task
+            const existingTask = await db.query('SELECT creator_id, assigned_to FROM tasks WHERE id = $1', [id]);
+            if (existingTask.rows.length === 0 || (existingTask.rows[0].creator_id !== user_id && existingTask.rows[0].assigned_to !== user_id)) {
                 return res.status(403).json({ message: 'You do not have permission to delete this task.' });
             }
 
-            const deletedTaskResult = await db.query('DELETE FROM tasks WHERE id = $1 RETURNING id', [id]);
-            const deletedTask = deletedTaskResult.rows[0];
-
-            if (deletedTaskResult.rows.length === 0) {
+            const deletedTask = await db.query('DELETE FROM tasks WHERE id = $1 RETURNING *', [id]);
+            if (deletedTask.rows.length === 0) {
                 return res.status(404).json({ message: 'Task not found.' });
             }
-
-            // Emit a Socket.IO event after successful deletion
-            io.emit('taskDeleted', { taskId: deletedTask.id, deleterId: user_id });
-            console.log(`Socket.IO: Emitted 'taskDeleted' for task ID: ${deletedTask.id}`);
-
-
+            emitTaskEvent('taskDeleted', { id: id }); // Emit event on deletion
             res.status(200).json({ message: 'Task deleted successfully!' });
-
         } catch (error) {
             console.error('Error deleting task:', error.message);
             res.status(500).json({ message: 'Internal server error during task deletion.' });
         }
     };
 
-    // --- Add a Tag to a Task ---
+    // --- Add Tag to Task ---
     const addTagToTask = async (req, res) => {
-        const { taskId, tagId } = req.params;
-        const user_id = req.user.user_id;
+        const { taskId, tagId } = req.params; // Get taskId and tagId from URL parameters
+        const user_id = req.user.user_id; // Get authenticated user's ID
 
         try {
-            const taskPermissionCheck = await db.query(
-                `SELECT t.id FROM tasks t JOIN projects p ON t.project_id = p.id
-                 WHERE t.id = $1 AND (p.created_by = $2 OR t.assigned_to = $2)`,
-                [taskId, user_id]
-            );
-            if (taskPermissionCheck.rows.length === 0) {
-                return res.status(403).json({ message: 'Task not found or you do not have permission to modify.' });
+            // Verify task exists and user has permission (creator or assigned)
+            const taskCheck = await db.query('SELECT creator_id, assigned_to FROM tasks WHERE id = $1', [taskId]);
+            if (taskCheck.rows.length === 0 || (taskCheck.rows[0].creator_id !== user_id && taskCheck.rows[0].assigned_to !== user_id)) {
+                return res.status(403).json({ message: 'You do not have permission to modify this task.' });
             }
 
+            // Check if tag exists
             const tagCheck = await db.query('SELECT id FROM tags WHERE id = $1', [tagId]);
             if (tagCheck.rows.length === 0) {
                 return res.status(404).json({ message: 'Tag not found.' });
             }
 
+            // Prevent duplicate tag assignments
             const existingTag = await db.query('SELECT * FROM task_tags WHERE task_id = $1 AND tag_id = $2', [taskId, tagId]);
             if (existingTag.rows.length > 0) {
-                return res.status(409).json({ message: 'Tag already associated with this task.' });
+                return res.status(409).json({ message: 'Tag already assigned to this task.' });
             }
 
             await db.query('INSERT INTO task_tags (task_id, tag_id) VALUES ($1, $2)', [taskId, tagId]);
-
-            // Emit event for tag addition
-            io.emit('taskTagAdded', { taskId: taskId, tagId: tagId, modifierId: user_id });
-            console.log(`Socket.IO: Emitted 'taskTagAdded' for task ID: ${taskId}, tag ID: ${tagId}`);
-
-
-            res.status(200).json({ message: 'Tag added to task successfully!' });
-
+            emitTaskEvent('taskTagAdded', { taskId, tagId }); // Emit event
+            res.status(201).json({ message: 'Tag added to task successfully!' });
         } catch (error) {
             console.error('Error adding tag to task:', error.message);
-            res.status(500).json({ message: 'Internal server error during tag addition.' });
+            res.status(500).json({ message: 'Internal server error.' });
         }
     };
 
-    // --- Remove a Tag from a Task ---
+    // --- Remove Tag from Task ---
     const removeTagFromTask = async (req, res) => {
-        const { taskId, tagId } = req.params;
-        const user_id = req.user.user_id;
+        const { taskId, tagId } = req.params; // Get taskId and tagId from URL parameters
+        const user_id = req.user.user_id; // Get authenticated user's ID
 
         try {
-            const taskPermissionCheck = await db.query(
-                `SELECT t.id FROM tasks t JOIN projects p ON t.project_id = p.id
-                 WHERE t.id = $1 AND (p.created_by = $2 OR t.assigned_to = $2)`,
-                [taskId, user_id]
-            );
-            if (taskPermissionCheck.rows.length === 0) {
-                return res.status(403).json({ message: 'Task not found or you do not have permission to modify.' });
+            // Verify task exists and user has permission (creator or assigned)
+            const taskCheck = await db.query('SELECT creator_id, assigned_to FROM tasks WHERE id = $1', [taskId]);
+            if (taskCheck.rows.length === 0 || (taskCheck.rows[0].creator_id !== user_id && taskCheck.rows[0].assigned_to !== user_id)) {
+                return res.status(403).json({ message: 'You do not have permission to modify this task.' });
             }
 
-            const deletedTag = await db.query('DELETE FROM task_tags WHERE task_id = $1 AND tag_id = $2 RETURNING *', [taskId, tagId]);
-
-            if (deletedTag.rows.length === 0) {
-                return res.status(404).json({ message: 'Tag not found for this task association.' });
+            const result = await db.query('DELETE FROM task_tags WHERE task_id = $1 AND tag_id = $2 RETURNING *', [taskId, tagId]);
+            if (result.rows.length === 0) {
+                return res.status(404).json({ message: 'Tag not found on this task.' });
             }
-
-            // Emit event for tag removal
-            io.emit('taskTagRemoved', { taskId: taskId, tagId: tagId, modifierId: user_id });
-            console.log(`Socket.IO: Emitted 'taskTagRemoved' for task ID: ${taskId}, tag ID: ${tagId}`);
-
-
+            emitTaskEvent('taskTagRemoved', { taskId, tagId }); // Emit event
             res.status(200).json({ message: 'Tag removed from task successfully!' });
-
         } catch (error) {
             console.error('Error removing tag from task:', error.message);
-            res.status(500).json({ message: 'Internal server error during tag removal.' });
+            res.status(500).json({ message: 'Internal server error.' });
         }
     };
 
-    return { // <--- THIS RETURN IS CRUCIAL FOR EXPORTING THE FUNCTIONS
+
+    return {
         createTask,
         getTasks,
         getTaskById,
