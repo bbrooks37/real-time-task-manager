@@ -1,10 +1,12 @@
 // client/src/index.js
 
 // --- Global Variables ---
-const API_BASE_URL = 'http://localhost:5000/api'; // Your backend API base URL
-let socket; // Will hold the Socket.IO client instance
-let currentUser = null; // Stores authenticated user data
-let currentToken = null; // Stores the JWT token
+// Using hardcoded URL as we reverted from frontend bundlers like Webpack/Vite
+const API_BASE_URL = 'http://localhost:5000/api'; 
+
+let socket; 
+let currentUser = null; 
+let currentToken = null; 
 
 // --- DOM Elements (will be assigned inside DOMContentLoaded) ---
 let authSection, mainAppSection, welcomeUsername, logoutBtn;
@@ -15,14 +17,25 @@ let tasksSection, currentProjectNameSpan, createTaskForm, taskTitleInput, taskDe
     taskProjectIdSelect, taskParentTaskIdInput, tasksList, noTasksMessage;
 let globalMessageDiv;
 
-// Input fields for auth forms (Declared globally, assigned in DOMContentLoaded)
+// Input fields for auth forms
 let registerUsername, registerEmail, registerPassword; 
 let loginEmail, loginPassword;                     
+
+// Modal related DOM elements
+let editTaskModal, editTaskForm, cancelEditTaskBtn;
+let editTaskId, editTaskOriginalProjectId;
+let editTaskTitle, editTaskDescription, editTaskDueDate, editTaskPrioritySelect, 
+    editTaskStatusSelect, editTaskAssignedToSelect, editTaskProjectIdSelect, editTaskParentTaskIdInput;
+
+// NEW: Edit Project Modal related DOM elements
+let editProjectModal, editProjectForm, cancelEditProjectBtn;
+let editProjectId, editProjectName, editProjectDescription;
+
 
 // --- Utility Functions ---
 
 function showMessage(message, type = 'success') {
-    if (!globalMessageDiv) { // Fallback if element not yet defined (shouldn't happen with DOMContentLoaded)
+    if (!globalMessageDiv) { 
         console.log("Message (globalMessageDiv not ready):", message);
         return;
     }
@@ -33,11 +46,11 @@ function showMessage(message, type = 'success') {
     globalMessageDiv.classList.remove('hidden');
     setTimeout(() => {
         globalMessageDiv.classList.add('hidden');
-    }, 3000); // Message disappears after 3 seconds
+    }, 3000); 
 }
 
 function showAuthMessage(message, type = 'error') {
-    if (!authMessageDiv) { // Fallback
+    if (!authMessageDiv) { 
         console.log("Auth Message (authMessageDiv not ready):", message);
         return;
     }
@@ -46,13 +59,13 @@ function showAuthMessage(message, type = 'error') {
 }
 
 function clearAuthMessages() {
-    if (authMessageDiv) {
+    if (authMessageDiv) { 
         authMessageDiv.textContent = '';
     }
 }
 
 function setAuthDisplay(showLogin = true) {
-    if (loginForm && registerForm) { // Ensure elements exist
+    if (loginForm && registerForm) { 
         if (showLogin) {
             loginForm.classList.remove('hidden');
             registerForm.classList.add('hidden');
@@ -83,13 +96,12 @@ async function fetchData(endpoint, method = 'GET', body = null) {
         const data = await response.json();
 
         if (!response.ok) {
-            // Handle HTTP errors
             throw new Error(data.message || 'Something went wrong');
         }
         return data;
     } catch (error) {
         console.error('API call error:', error);
-        throw error; // Re-throw to be caught by specific handler
+        throw error; 
     }
 }
 
@@ -104,12 +116,11 @@ async function handleRegister(e) {
     try {
         const data = await fetchData('/auth/register', 'POST', { username, email, password });
         showMessage('Registration successful! Please log in.', 'success');
-        setAuthDisplay(true); // Show login form after successful registration
-        registerUsername.value = ''; // Clear form
+        setAuthDisplay(true); 
+        registerUsername.value = ''; 
         registerEmail.value = '';
         registerPassword.value = '';
     } catch (error) {
-        // Check if the error object has an 'errors' array from express-validator
         if (error.errors && Array.isArray(error.errors)) {
             const errorMessages = error.errors.map(err => err.msg).join('; ');
             showAuthMessage(`Validation failed: ${errorMessages}`);
@@ -128,12 +139,12 @@ async function handleLogin(e) {
         const data = await fetchData('/auth/login', 'POST', { email, password });
         currentToken = data.token;
         currentUser = data.user;
-        localStorage.setItem('jwt_token', currentToken); // Store token
-        localStorage.setItem('current_user', JSON.stringify(currentUser)); // Store user info
+        localStorage.setItem('jwt_token', currentToken); 
+        localStorage.setItem('current_user', JSON.stringify(currentUser)); 
 
-        renderApp(); // Render main application UI
+        renderApp(); 
         showMessage('Logged in successfully!', 'success');
-        loginEmail.value = ''; // Clear form
+        loginEmail.value = ''; 
         loginPassword.value = '';
     } catch (error) {
         showAuthMessage(error.message);
@@ -145,7 +156,7 @@ function handleLogout() {
     currentUser = null;
     localStorage.removeItem('jwt_token');
     localStorage.removeItem('current_user');
-    location.reload(); // Simple refresh to reset UI
+    location.reload(); 
 }
 
 // --- Main Application Rendering ---
@@ -157,15 +168,17 @@ function renderApp() {
             mainAppSection.classList.remove('hidden');
             welcomeUsername.textContent = currentUser.username;
         }
-        initializeSocketIO(); // Initialize Socket.IO connection
-        fetchProjects(); // Load projects
-        fetchUsersForAssignment(); // Load users for task assignment dropdown
+        initializeSocketIO(); 
+        fetchProjects(); 
+        fetchUsersForAssignment(); 
+        // Explicitly fetch all tasks for the logged-in user when rendering the app
+        fetchTasks(); 
     } else {
         if (authSection && mainAppSection) {
             authSection.classList.remove('hidden');
             mainAppSection.classList.add('hidden');
         }
-        setAuthDisplay(true); // Show login form by default
+        setAuthDisplay(true); 
     }
 }
 
@@ -174,8 +187,8 @@ function renderApp() {
 async function fetchProjects() {
     try {
         const data = await fetchData('/projects');
-        if (projectsList) { // Ensure projectsList exists
-            projectsList.innerHTML = ''; // Clear existing projects
+        if (projectsList) { 
+            projectsList.innerHTML = ''; 
             if (data.projects.length === 0) {
                 noProjectsMessage.classList.remove('hidden');
             } else {
@@ -183,14 +196,16 @@ async function fetchProjects() {
                 data.projects.forEach(project => renderProject(project));
             }
         }
-        populateProjectDropdowns(data.projects); // Populate task assignment dropdown
+        // Populate project dropdowns for both create AND edit forms
+        populateProjectDropdowns(data.projects); 
+        populateEditTaskProjectDropdown(data.projects); // Populate for edit task modal
     } catch (error) {
         showMessage(`Error fetching projects: ${error.message}`, 'error');
     }
 }
 
 function renderProject(project) {
-    if (!projectsList) return; // Guard clause
+    if (!projectsList) return; 
     const projectDiv = document.createElement('div');
     projectDiv.id = `project-${project.id}`;
     projectDiv.className = 'bg-white p-4 rounded-md shadow-sm flex justify-between items-center border-l-4 border-purple-500';
@@ -207,39 +222,76 @@ function renderProject(project) {
     `;
     projectsList.appendChild(projectDiv);
 
-    // Attach event listeners for buttons
     projectDiv.querySelector('.view-tasks-btn').addEventListener('click', (e) => {
         fetchTasks(project.id, project.name);
     });
+    // Attach event listener for the new edit project modal
     projectDiv.querySelector('.edit-project-btn').addEventListener('click', (e) => {
         const projectId = e.target.dataset.id;
-        const projectName = prompt('Edit Project Name:', e.target.dataset.name);
-        const projectDesc = prompt('Edit Project Description:', e.target.dataset.description);
-        if (projectName !== null) {
-            updateProject(projectId, projectName, projectDesc);
-        }
+        const projectName = e.target.dataset.name;
+        const projectDescription = e.target.dataset.description;
+        showEditProjectModal({ id: projectId, name: projectName, description: projectDescription });
     });
     projectDiv.querySelector('.delete-project-btn').addEventListener('click', (e) => {
         const projectId = e.target.dataset.id;
+        // Use a custom modal instead of confirm for a better UX
         if (confirm('Are you sure you want to delete this project? This will also delete all associated tasks.')) {
             deleteProject(projectId);
         }
     });
 }
 
+// NEW: Function to show and populate the edit project modal
+function showEditProjectModal(project) {
+    if (!editProjectModal) return;
+
+    editProjectId.value = project.id;
+    editProjectName.value = project.name;
+    editProjectDescription.value = project.description;
+
+    editProjectModal.classList.remove('hidden'); // Show the modal
+}
+
+// NEW: Function to hide the edit project modal
+function hideEditProjectModal() {
+    if (editProjectModal) {
+        editProjectModal.classList.add('hidden');
+        editProjectForm.reset(); // Clear the form
+    }
+}
+
+// NEW: Handle submission of the edit project form
+async function handleEditProjectSubmit(e) {
+    e.preventDefault();
+
+    const projectId = editProjectId.value;
+    const name = editProjectName.value;
+    const description = editProjectDescription.value;
+
+    const updates = { name, description };
+
+    try {
+        await updateProject(projectId, name, description); // Call existing updateProject function
+        showMessage('Project updated successfully!', 'success');
+        hideEditProjectModal(); // Hide the modal after success
+    } catch (error) {
+        showMessage(`Error updating project: ${error.message}`, 'error');
+    }
+}
+
+
 async function handleCreateProject(e) {
     e.preventDefault();
-    if (!projectNameInput) return; // Guard clause
+    if (!projectNameInput) return; 
     const name = projectNameInput.value;
     if (!name) {
         showMessage('Project name cannot be empty.', 'error');
         return;
     }
     try {
-        await fetchData('/projects', 'POST', { name, description: '' }); // Description can be added later
+        await fetchData('/projects', 'POST', { name, description: '' }); 
         projectNameInput.value = '';
         showMessage('Project created!', 'success');
-        // Project will be updated by Socket.IO event
     } catch (error) {
         showMessage(`Error creating project: ${error.message}`, 'error');
     }
@@ -249,7 +301,6 @@ async function updateProject(id, name, description) {
     try {
         await fetchData(`/projects/${id}`, 'PUT', { name, description });
         showMessage('Project updated!', 'success');
-        // Project will be updated by Socket.IO event
     } catch (error) {
         showMessage(`Error updating project: ${error.message}`, 'error');
     }
@@ -259,14 +310,13 @@ async function deleteProject(id) {
     try {
         await fetchData(`/projects/${id}`, 'DELETE');
         showMessage('Project deleted!', 'success');
-        // Project will be deleted by Socket.IO event
-    } catch (error) {
+    } catch (error) { 
         showMessage(`Error deleting project: ${error.message}`, 'error');
     }
 }
 
 function populateProjectDropdowns(projects) {
-    if (!taskProjectIdSelect) return; // Guard clause
+    if (!taskProjectIdSelect) return; 
     taskProjectIdSelect.innerHTML = '<option value="">Select Project...</option>';
     projects.forEach(project => {
         const option = document.createElement('option');
@@ -276,24 +326,44 @@ function populateProjectDropdowns(projects) {
     });
 }
 
+// Populate project dropdown specifically for the edit task modal
+function populateEditTaskProjectDropdown(projects) {
+    if (!editTaskProjectIdSelect) return;
+    editTaskProjectIdSelect.innerHTML = ''; 
+
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Select Project...';
+    editTaskProjectIdSelect.appendChild(defaultOption);
+
+    projects.forEach(project => {
+        const option = document.createElement('option');
+        option.value = project.id;
+        option.textContent = project.name;
+        editTaskProjectIdSelect.appendChild(option);
+    });
+}
+
+
 // --- User Functions (for task assignment) ---
-let allUsers = []; // Store all users for dropdown
+let allUsers = []; 
 async function fetchUsersForAssignment() {
     try {
-        const data = await fetchData('/users'); // Fetch users from the new /api/users endpoint
-        allUsers = data.users; // Store fetched users
-        if (taskAssignedToSelect) { // Ensure dropdown element exists
-            taskAssignedToSelect.innerHTML = '<option value="">Assign to...</option>'; // Clear existing options
+        const data = await fetchData('/users'); 
+        allUsers = data.users; 
+        if (taskAssignedToSelect && editTaskAssignedToSelect) { // Also populate edit modal's dropdown
+            taskAssignedToSelect.innerHTML = '<option value="">Assign to...</option>'; 
+            editTaskAssignedToSelect.innerHTML = '<option value="">Assign to...</option>'; // For edit task modal
             allUsers.forEach(user => {
                 const option = document.createElement('option');
-                option.value = user.id; // Use user ID as the value
-                option.textContent = user.username; // Display username
+                option.value = user.id; 
+                option.textContent = user.username; 
                 taskAssignedToSelect.appendChild(option);
+                editTaskAssignedToSelect.appendChild(option.cloneNode(true)); // Clone for the edit modal
             });
         }
     } catch (error) {
         console.warn('Could not fetch users for assignment. Skipping user dropdown population. Error:', error.message);
-        // Display a message to the user if this is a critical part of the UI
         showMessage(`Could not load users for assignment: ${error.message}`, 'error');
     }
 }
@@ -307,8 +377,8 @@ async function fetchTasks(projectId = null, projectName = 'All Projects') {
     const endpoint = projectId ? `/tasks?project_id=${projectId}` : '/tasks';
     try {
         const data = await fetchData(endpoint);
-        if (tasksList) { // Ensure tasksList exists
-            tasksList.innerHTML = ''; // Clear existing tasks
+        if (tasksList) { 
+            tasksList.innerHTML = ''; 
             if (data.tasks.length === 0) {
                 noTasksMessage.classList.remove('hidden');
             } else {
@@ -317,7 +387,6 @@ async function fetchTasks(projectId = null, projectName = 'All Projects') {
             }
         }
     } catch (error) {
-        // This error is expected before login, so only show if user is logged in
         if (currentToken) {
             showMessage(`Error fetching tasks: ${error.message}`, 'error');
         } else {
@@ -327,7 +396,7 @@ async function fetchTasks(projectId = null, projectName = 'All Projects') {
 }
 
 function renderTask(task) {
-    if (!tasksList) return; // Guard clause
+    if (!tasksList) return; 
     const taskDiv = document.createElement('div');
     taskDiv.id = `task-${task.id}`;
     taskDiv.className = 'bg-white p-4 rounded-md shadow-sm flex justify-between items-start border-l-4 border-yellow-500';
@@ -349,21 +418,36 @@ function renderTask(task) {
             <div class="mt-2">${tagsHtml}</div>
         </div>
         <div class="flex flex-col space-y-2 ml-4">
-            <button data-id="${task.id}" data-project-id="${task.project_id}" class="edit-task-btn bg-yellow-500 text-white p-2 rounded-md text-sm hover:bg-yellow-600 transition shadow-sm">Edit</button>
+            <button data-id="${task.id}" 
+                    data-title="${task.title}" 
+                    data-description="${task.description || ''}"
+                    data-due-date="${task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : ''}"
+                    data-priority="${task.priority}"
+                    data-status="${task.status}"
+                    data-assigned-to="${task.assigned_to || ''}"
+                    data-project-id="${task.project_id}"
+                    data-parent-task-id="${task.parent_task_id || ''}"
+                    class="edit-task-btn bg-yellow-500 text-white p-2 rounded-md text-sm hover:bg-yellow-600 transition shadow-sm">Edit</button>
             <button data-id="${task.id}" class="delete-task-btn bg-red-500 text-white p-2 rounded-md text-sm hover:bg-red-600 transition shadow-sm">Delete</button>
         </div>
     `;
     tasksList.appendChild(taskDiv);
 
-    // Attach event listeners
+    // Attach event listeners for edit task modal
     taskDiv.querySelector('.edit-task-btn').addEventListener('click', (e) => {
         const taskId = e.target.dataset.id;
-        const projectId = e.target.dataset.projectId; // Pass project ID for update
-        // A more advanced edit would involve a modal with pre-filled fields
-        const newTitle = prompt('Edit Task Title:', task.title);
-        if (newTitle !== null) {
-            updateTask(taskId, { title: newTitle, project_id: projectId }); // Only update title for simplicity
-        }
+        const taskData = {
+            id: taskId,
+            title: e.target.dataset.title,
+            description: e.target.dataset.description,
+            due_date: e.target.dataset.dueDate, 
+            priority: e.target.dataset.priority,
+            status: e.target.dataset.status,
+            assigned_to: e.target.dataset.assignedTo,
+            project_id: e.target.dataset.projectId,
+            parent_task_id: e.target.dataset.parentTaskId,
+        };
+        showEditTaskModal(taskData); 
     });
     taskDiv.querySelector('.delete-task-btn').addEventListener('click', (e) => {
         const taskId = e.target.dataset.id;
@@ -373,15 +457,71 @@ function renderTask(task) {
     });
 }
 
+// Function to show and populate the edit task modal
+function showEditTaskModal(task) {
+    if (!editTaskModal) return;
+
+    editTaskId.value = task.id;
+    editTaskOriginalProjectId.value = task.project_id; 
+
+    editTaskTitle.value = task.title;
+    editTaskDescription.value = task.description;
+    editTaskDueDate.value = task.due_date; 
+    editTaskPrioritySelect.value = task.priority;
+    editTaskStatusSelect.value = task.status;
+    
+    editTaskAssignedToSelect.value = task.assigned_to || ''; 
+    editTaskProjectIdSelect.value = task.project_id || '';
+
+    editTaskParentTaskIdInput.value = task.parent_task_id;
+
+    editTaskModal.classList.remove('hidden'); 
+}
+
+// Function to hide the edit task modal
+function hideEditTaskModal() {
+    if (editTaskModal) {
+        editTaskModal.classList.add('hidden');
+        editTaskForm.reset(); 
+    }
+}
+
+// Handle submission of the edit task form
+async function handleEditTaskSubmit(e) {
+    e.preventDefault();
+
+    const taskId = editTaskId.value;
+    const originalProjectId = editTaskOriginalProjectId.value; 
+
+    const updates = {
+        title: editTaskTitle.value,
+        description: editTaskDescription.value,
+        due_date: editTaskDueDate.value || null,
+        priority: editTaskPrioritySelect.value,
+        status: editTaskStatusSelect.value,
+        assigned_to: editTaskAssignedToSelect.value ? parseInt(editTaskAssignedToSelect.value) : null,
+        project_id: editTaskProjectIdSelect.value ? parseInt(editTaskProjectIdSelect.value) : null, 
+        parent_task_id: editTaskParentTaskIdInput.value ? parseInt(editTaskParentTaskIdInput.value) : null,
+    };
+
+    try {
+        await updateTask(taskId, updates); 
+        showMessage('Task updated successfully!', 'success');
+        hideEditTaskModal(); 
+    } catch (error) {
+        showMessage(`Error updating task: ${error.message}`, 'error');
+    }
+}
+
+
 async function handleCreateTask(e) {
     e.preventDefault();
-    if (!taskTitleInput || !taskProjectIdSelect) return; // Guard clause
+    if (!taskTitleInput || !taskProjectIdSelect) return; 
     const title = taskTitleInput.value;
     const description = taskDescriptionInput.value;
     const due_date = taskDueDateInput.value || null;
     const priority = taskPrioritySelect.value;
     const status = taskStatusSelect.value;
-    // Get the selected assigned_to user ID
     const assigned_to = taskAssignedToSelect.value || null; 
     const project_id = taskProjectIdSelect.value;
     const parent_task_id = taskParentTaskIdInput.value || null;
@@ -394,28 +534,26 @@ async function handleCreateTask(e) {
     try {
         await fetchData('/tasks', 'POST', {
             title, description, due_date, priority, status,
-            assigned_to: assigned_to ? parseInt(assigned_to) : null, // Ensure ID is integer or null
+            assigned_to: assigned_to ? parseInt(assigned_to) : null, 
             project_id: parseInt(project_id),
             parent_task_id: parent_task_id ? parseInt(parent_task_id) : null
         });
         
         showMessage('Task created!', 'success');
-        createTaskForm.reset(); // Clear form
-        // Task list will be updated by Socket.IO event
-    } catch (error) {
+        createTaskForm.reset(); 
+    }
+    catch (error) {
         showMessage(`Error creating task: ${error.message}`, 'error');
     }
 }
 
 async function updateTask(id, updates) {
     try {
-        // Ensure assigned_to is parsed if present in updates object
         if (updates.assigned_to !== undefined && updates.assigned_to !== null) {
             updates.assigned_to = updates.assigned_to ? parseInt(updates.assigned_to) : null;
         }
         await fetchData(`/tasks/${id}`, 'PUT', updates);
         showMessage('Task updated!', 'success');
-        // Task list will be updated by Socket.IO event
     } catch (error) {
         showMessage(`Error updating task: ${error.message}`, 'error');
     }
@@ -425,13 +563,11 @@ async function deleteTask(id) {
     try {
         await fetchData(`/tasks/${id}`, 'DELETE');
         showMessage('Task deleted!', 'success');
-        // Task list will be updated by Socket.IO event
     } catch (error) {
         showMessage(`Error deleting task: ${error.message}`, 'error');
     }
 }
 
-// Helper for task colors
 function getPriorityColor(priority) {
     switch (priority) {
         case 'urgent': return 'red-600';
@@ -459,13 +595,7 @@ function initializeSocketIO() {
         return;
     }
 
-    // Connect to your backend's Socket.IO server
     socket = io(API_BASE_URL.replace('/api', ''), {
-        // You can add auth headers here if needed, but for simplicity, we'll let auth happen via JWT for API calls.
-        // For Socket.IO itself, you might pass the JWT if you secure socket connections
-        // extraHeaders: {
-        //     Authorization: `Bearer ${currentToken}`
-        // }
     });
 
     socket.on('connect', () => {
@@ -487,50 +617,46 @@ function initializeSocketIO() {
 
     socket.on('taskCreated', (data) => {
         showMessage(`New Task: "${data.task.title}" created!`, 'success');
-        // Re-fetch tasks to update the list, or directly add/update the task
         fetchTasks(); 
-        fetchProjects(); // Also refresh projects to update task counts if any
+        fetchProjects(); 
     });
 
     socket.on('taskUpdated', (data) => {
         showMessage(`Task: "${data.task.title}" updated!`, 'success');
-        // Re-fetch tasks to update the list, or find and update the specific task element
         fetchTasks();
     });
 
     socket.on('taskDeleted', (data) => {
         showMessage(`Task deleted!`, 'success');
-        // Remove task element from DOM, or re-fetch tasks
         fetchTasks();
     });
 
     socket.on('taskTagAdded', (data) => {
         showMessage(`Tag added to task!`, 'success');
-        fetchTasks(); // Refresh tasks to show new tags
+        fetchTasks(); 
     });
 
     socket.on('taskTagRemoved', (data) => {
         showMessage(`Tag removed from task!`, 'success');
-        fetchTasks(); // Refresh tasks to remove tags
+        fetchTasks(); 
     });
 
     socket.on('projectCreated', (data) => {
         showMessage(`New Project: "${data.project.name}" created!`, 'success');
-        fetchProjects(); // Re-fetch projects to update list and dropdowns
+        fetchProjects(); 
     });
 
     socket.on('projectUpdated', (data) => {
         showMessage(`Project: "${data.project.name}" updated!`, 'success');
-        fetchProjects(); // Re-fetch projects
+        fetchProjects(); 
     });
 
     socket.on('projectDeleted', (data) => {
         showMessage(`Project deleted!`, 'success');
-        fetchProjects(); // Re-fetch projects
-        fetchTasks(); // Also refresh tasks as tasks in deleted projects might be gone
+        fetchProjects(); 
+        fetchTasks(); 
     });
 
-    // Example: A generic test event listener
     socket.on('test_response', (data) => {
         console.log('Received test_response:', data);
         showMessage(data.message, 'info');
@@ -539,12 +665,8 @@ function initializeSocketIO() {
 
 
 // --- Event Listeners ---
-// Moved event listener attachments inside DOMContentLoaded
-// as elements might not be available at script parsing time.
-
-// --- Initial Load / DOMContentLoaded ---
 document.addEventListener('DOMContentLoaded', () => {
-    // Assign DOM elements here to ensure they are loaded
+    // Assign DOM elements
     authSection = document.getElementById('auth-section');
     mainAppSection = document.getElementById('main-app-section');
     welcomeUsername = document.getElementById('welcome-username');
@@ -559,13 +681,11 @@ document.addEventListener('DOMContentLoaded', () => {
     registerBtn = document.getElementById('register-btn');
     loginBtn = document.getElementById('login-btn');
     authMessageDiv = document.getElementById('auth-message');
-    // Input fields for auth forms
     registerUsername = document.getElementById('register-username'); 
     registerEmail = document.getElementById('register-email');     
     registerPassword = document.getElementById('register-password'); 
     loginEmail = document.getElementById('login-email');         
     loginPassword = document.getElementById('login-password');     
-
 
     // Project Elements
     projectsSection = document.getElementById('projects-section');
@@ -574,7 +694,7 @@ document.addEventListener('DOMContentLoaded', () => {
     projectsList = document.getElementById('projects-list');
     noProjectsMessage = document.getElementById('no-projects-message');
 
-    // Task Elements
+    // Task Elements (main form)
     tasksSection = document.getElementById('tasks-section');
     currentProjectNameSpan = document.getElementById('current-project-name');
     createTaskForm = document.getElementById('create-task-form');
@@ -583,13 +703,37 @@ document.addEventListener('DOMContentLoaded', () => {
     taskDueDateInput = document.getElementById('task-due-date');
     taskPrioritySelect = document.getElementById('task-priority');
     taskStatusSelect = document.getElementById('task-status');
-    taskAssignedToSelect = document.getElementById('task-assigned-to'); // This dropdown
+    taskAssignedToSelect = document.getElementById('task-assigned-to'); 
     taskProjectIdSelect = document.getElementById('task-project-id');
     taskParentTaskIdInput = document.getElementById('task-parent-task-id');
     tasksList = document.getElementById('tasks-list');
     noTasksMessage = document.getElementById('no-tasks-message');
 
-    // Attach Event Listeners *after* elements are defined
+    // Edit Task Modal Elements
+    editTaskModal = document.getElementById('edit-task-modal');
+    editTaskForm = document.getElementById('edit-task-form');
+    cancelEditTaskBtn = document.getElementById('cancel-edit-task-btn');
+    editTaskId = document.getElementById('edit-task-id');
+    editTaskOriginalProjectId = document.getElementById('edit-task-original-project-id');
+    editTaskTitle = document.getElementById('edit-task-title');
+    editTaskDescription = document.getElementById('edit-task-description');
+    editTaskDueDate = document.getElementById('edit-task-due-date');
+    editTaskPrioritySelect = document.getElementById('edit-task-priority');
+    editTaskStatusSelect = document.getElementById('edit-task-status');
+    editTaskAssignedToSelect = document.getElementById('edit-task-assigned-to');
+    editTaskProjectIdSelect = document.getElementById('edit-task-project-id');
+    editTaskParentTaskIdInput = document.getElementById('edit-task-parent-task-id');
+
+    // NEW: Edit Project Modal Elements
+    editProjectModal = document.getElementById('edit-project-modal');
+    editProjectForm = document.getElementById('edit-project-form');
+    cancelEditProjectBtn = document.getElementById('cancel-edit-project-btn');
+    editProjectId = document.getElementById('edit-project-id');
+    editProjectName = document.getElementById('edit-project-name');
+    editProjectDescription = document.getElementById('edit-project-description');
+
+
+    // Attach Event Listeners
     showLoginBtn.addEventListener('click', () => setAuthDisplay(true));
     showRegisterBtn.addEventListener('click', () => setAuthDisplay(false));
 
@@ -599,18 +743,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
     createProjectForm.addEventListener('submit', handleCreateProject);
     createTaskForm.addEventListener('submit', handleCreateTask);
+    
+    // Event listeners for the edit task modal
+    editTaskForm.addEventListener('submit', handleEditTaskSubmit);
+    cancelEditTaskBtn.addEventListener('click', hideEditTaskModal);
+    editTaskModal.addEventListener('click', (e) => {
+        if (e.target === editTaskModal) {
+            hideEditTaskModal();
+        }
+    });
 
+    // NEW: Event listeners for the edit project modal
+    editProjectForm.addEventListener('submit', handleEditProjectSubmit);
+    cancelEditProjectBtn.addEventListener('click', hideEditProjectModal);
+    editProjectModal.addEventListener('click', (e) => {
+        if (e.target === editProjectModal) {
+            hideEditProjectModal();
+        }
+    });
 
     // Check for existing token/user in localStorage on page load
     currentToken = localStorage.getItem('jwt_token');
     currentUser = JSON.parse(localStorage.getItem('current_user'));
 
-    renderApp(); // Render the appropriate section (auth or main app)
-    // Initial fetch of tasks only happens after renderApp, which might itself fetch based on login status
-    // The unauthorized error for fetchTasks on initial load is expected if not logged in.
+    renderApp(); 
     if (!currentToken) {
         console.warn("Not logged in. Initial task fetch will be unauthorized (expected).");
-        // Optionally, if you want to explicitly hide tasks/projects until login,
-        // you can ensure fetchTasks is only called *after* successful login, not on DOMContentLoaded.
     }
 });

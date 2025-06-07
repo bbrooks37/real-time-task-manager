@@ -4,15 +4,37 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Real-time Task Manager</title>
-    <!-- Link to your main stylesheet -->
-    <link rel="stylesheet" href="../src/styles.css"> <!-- Corrected path for static server from root -->
-    <!-- Tailwind CSS CDN for easy styling - ensures responsive design out of the box -->
+    <!-- Tailwind CSS CDN for easy styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* Custom font import for better aesthetics */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
+        }
+        /* Basic modal backdrop */
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000; /* Ensure it's on top */
+        }
+        /* Modal content styles */
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh; /* Limit height for scrollable content */
+            overflow-y: auto; /* Enable scrolling if content overflows */
         }
     </style>
 </head>
@@ -107,9 +129,88 @@
 
     </div>
 
+    <!-- Edit Task Modal Structure -->
+    <div id="edit-task-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 class="text-2xl font-bold mb-4 text-gray-800">Edit Task</h3>
+            <form id="edit-task-form" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input type="hidden" id="edit-task-id">
+                <input type="hidden" id="edit-task-original-project-id"> <!-- To retain original project ID if not explicitly changed -->
+
+                <label for="edit-task-title" class="block text-sm font-medium text-gray-700">Task Title</label>
+                <input type="text" id="edit-task-title" class="p-2 border border-gray-300 rounded-md col-span-full focus:ring-blue-500 focus:border-blue-500" required>
+                
+                <label for="edit-task-description" class="block text-sm font-medium text-gray-700">Description</label>
+                <textarea id="edit-task-description" placeholder="Description (optional)" class="p-2 border border-gray-300 rounded-md h-20 col-span-full focus:ring-blue-500 focus:border-blue-500"></textarea>
+                
+                <label for="edit-task-due-date" class="block text-sm font-medium text-gray-700">Due Date</label>
+                <input type="date" id="edit-task-due-date" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                
+                <label for="edit-task-priority" class="block text-sm font-medium text-gray-700">Priority</label>
+                <select id="edit-task-priority" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    <option value="low">Low Priority</option>
+                    <option value="medium">Medium Priority</option>
+                    <option value="high">High Priority</option>
+                    <option value="urgent">Urgent Priority</option>
+                </select>
+                
+                <label for="edit-task-status" class="block text-sm font-medium text-gray-700">Status</label>
+                <select id="edit-task-status" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    <option value="pending">Pending</option>
+                    <option value="in-progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="blocked">Blocked</option>
+                    <option value="archived">Archived</option>
+                </select>
+                
+                <label for="edit-task-assigned-to" class="block text-sm font-medium text-gray-700">Assign To</label>
+                <select id="edit-task-assigned-to" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Unassigned</option>
+                    <!-- Users will be dynamically loaded here by JS -->
+                </select>
+                
+                <label for="edit-task-project-id" class="block text-sm font-medium text-gray-700">Project</label>
+                <select id="edit-task-project-id" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" required>
+                    <option value="">Select Project...</option>
+                    <!-- Projects will be dynamically loaded here by JS -->
+                </select>
+                
+                <label for="edit-task-parent-task-id" class="block text-sm font-medium text-gray-700">Parent Task ID</label>
+                <input type="number" id="edit-task-parent-task-id" placeholder="For subtask" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                
+                <div class="col-span-full flex justify-end space-x-2 mt-4">
+                    <button type="submit" class="bg-blue-600 text-white p-3 rounded-md hover:bg-blue-700 transition duration-300 shadow-md">Save Changes</button>
+                    <button type="button" id="cancel-edit-task-btn" class="bg-gray-500 text-white p-3 rounded-md hover:bg-gray-600 transition duration-300 shadow-md">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- NEW: Edit Project Modal Structure -->
+    <div id="edit-project-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 class="text-2xl font-bold mb-4 text-gray-800">Edit Project</h3>
+            <form id="edit-project-form" class="grid grid-cols-1 gap-4">
+                <input type="hidden" id="edit-project-id">
+                
+                <label for="edit-project-name" class="block text-sm font-medium text-gray-700">Project Name</label>
+                <input type="text" id="edit-project-name" class="p-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500" required>
+                
+                <label for="edit-project-description" class="block text-sm font-medium text-gray-700">Description</label>
+                <textarea id="edit-project-description" placeholder="Description (optional)" class="p-2 border border-gray-300 rounded-md h-20 focus:ring-purple-500 focus:border-purple-500"></textarea>
+                
+                <div class="col-span-full flex justify-end space-x-2 mt-4">
+                    <button type="submit" class="bg-purple-600 text-white p-3 rounded-md hover:bg-purple-700 transition duration-300 shadow-md">Save Changes</button>
+                    <button type="button" id="cancel-edit-project-btn" class="bg-gray-500 text-white p-3 rounded-md hover:bg-gray-600 transition duration-300 shadow-md">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
     <!-- Socket.IO client library -->
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <!-- Your main application JavaScript -->
-    <script src="../src/index.js"></script> <!-- Corrected path for static server from root -->
+    <script src="/src/index.js"></script> 
 </body>
 </html>
