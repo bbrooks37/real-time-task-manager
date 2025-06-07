@@ -1,163 +1,153 @@
 // project1/server/controllers/projectController.js
-const db = require('../db'); // Import the database connection pool
+const db = require('../db');
+const { validationResult } = require('express-validator'); // Import validationResult
 
-// Load environment variables
-require('dotenv').config({ path: '../../.env' }); 
+module.exports = (io) => {
+    // Helper function to emit Socket.IO events for projects
+    const emitProjectEvent = (eventName, project) => {
+        io.emit(eventName, { project: project });
+        console.log(`Socket.IO: Emitted '${eventName}' for project ID: ${project.id}`);
+    };
 
-// Export a function that receives io
-module.exports = (io) => { // <--- THIS LINE IS CRUCIAL FOR RECEIVING 'io'
-    // --- Create a New Project ---
+    // --- Create Project ---
     const createProject = async (req, res) => {
-        // Extract project details from request body
-        const { name, description } = req.body;
-        // req.user is populated by verifyToken middleware, contains user_id of the authenticated user
-        const created_by = req.user.user_id; 
+        // Check for validation errors (assuming project validation will be added later if needed)
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ message: 'Validation failed.', errors: errors.array() });
+        }
 
-        // Basic validation
+        const { name, description } = req.body;
+        const created_by = req.user.user_id; // Get creator_id from authenticated user
+
+        // Basic validation (can be replaced by express-validator if preferred)
         if (!name) {
             return res.status(400).json({ message: 'Project name is required.' });
         }
 
         try {
-            // Insert the new project into the database
-            const newProjectResult = await db.query(
-                'INSERT INTO projects (name, description, created_by) VALUES ($1, $2, $3) RETURNING id, name, description, created_by, created_at, updated_at',
+            const newProject = await db.query(
+                `INSERT INTO projects (name, description, description, created_by) VALUES ($1, $2, $3) RETURNING id, name, description, created_by`,
                 [name, description, created_by]
             );
-            const newProject = newProjectResult.rows[0];
-
-            // Emit a Socket.IO event after successful creation
-            io.emit('projectCreated', { project: newProject, creatorId: created_by });
-            console.log(`Socket.IO: Emitted 'projectCreated' for project ID: ${newProject.id}`);
-
-
-            // Send success response
-            res.status(201).json({
-                message: 'Project created successfully!',
-                project: newProject,
-            });
-
+            emitProjectEvent('projectCreated', newProject.rows[0]);
+            res.status(201).json({ message: 'Project created successfully!', project: newProject.rows[0] });
         } catch (error) {
             console.error('Error creating project:', error.message);
             res.status(500).json({ message: 'Internal server error during project creation.' });
         }
     };
 
-    // --- Get All Projects --- (No change in logic, as this is a read operation)
+    // --- Get All Projects (Expanded for associated tasks) ---
     const getProjects = async (req, res) => {
-        const user_id = req.user.user_id; // Get the ID of the authenticated user
-
+        const user_id = req.user.user_id; // Get authenticated user's ID
         try {
-            // Fetch all projects that are created by the authenticated user
-            const projects = await db.query('SELECT id, name, description, created_by, created_at, updated_at FROM projects WHERE created_by = $1 ORDER BY created_at DESC', [user_id]);
-
-            res.status(200).json({
-                message: 'Projects retrieved successfully!',
-                projects: projects.rows,
-                count: projects.rows.length,
-            });
-
+            // Fetch projects created by the authenticated user OR
+            // projects that have tasks assigned to the authenticated user
+            const projects = await db.query(
+                `SELECT DISTINCT p.id, p.name, p.description, p.created_at, p.updated_at,
+                                u.username AS created_by_username
+                 FROM projects p
+                 JOIN users u ON p.created_by = u.id
+                 LEFT JOIN tasks t ON p.id = t.project_id
+                 WHERE p.created_by = $1 OR t.assigned_to = $1
+                 ORDER BY p.created_at DESC`,
+                [user_id]
+            );
+            res.status(200).json({ message: 'Projects retrieved successfully!', projects: projects.rows });
         } catch (error) {
             console.error('Error retrieving projects:', error.message);
             res.status(500).json({ message: 'Internal server error during project retrieval.' });
         }
     };
 
-    // --- Get Project by ID --- (No change in logic, as this is a read operation)
+    // --- Get Project by ID ---
     const getProjectById = async (req, res) => {
-        const { id } = req.params; // Get project ID from URL parameters
-        const user_id = req.user.user_id; // Get the ID of the authenticated user
-
+        const { id } = req.params;
+        const user_id = req.user.user_id; // Get authenticated user's ID
         try {
-            // Fetch the project by ID, ensuring it belongs to the authenticated user
-            const projectResult = await db.query(
-                'SELECT id, name, description, created_by, created_at, updated_at FROM projects WHERE id = $1 AND created_by = $2',
+            // Fetch project if created by the authenticated user OR
+            // if there's a task in this project assigned to the user
+            const project = await db.query(
+                `SELECT DISTINCT p.id, p.name, p.description, p.created_at, p.updated_at,
+                                u.username AS created_by_username
+                 FROM projects p
+                 JOIN users u ON p.created_by = u.id
+                 LEFT JOIN tasks t ON p.id = t.project_id
+                 WHERE p.id = $1 AND (p.created_by = $2 OR t.assigned_to = $2)`,
                 [id, user_id]
             );
-            const project = projectResult.rows[0];
 
-            if (!project) {
-                return res.status(404).json({ message: 'Project not found or you do not have access.' });
+            if (project.rows.length === 0) {
+                return res.status(404).json({ message: 'Project not found or you do not have permission to access it.' });
             }
-
-            res.status(200).json({
-                message: 'Project retrieved successfully!',
-                project,
-            });
-
+            res.status(200).json({ message: 'Project retrieved successfully!', project: project.rows[0] });
         } catch (error) {
             console.error('Error retrieving project by ID:', error.message);
             res.status(500).json({ message: 'Internal server error during project retrieval.' });
         }
     };
 
-    // --- Update an Existing Project ---
+    // --- Update Project ---
     const updateProject = async (req, res) => {
-        const { id } = req.params; // Project ID from URL
-        const { name, description } = req.body; // Updated details from body
-        const user_id = req.user.user_id; // Authenticated user ID
-
-        // Basic validation
-        if (!name) { // Project name is required for update as well
-            return res.status(400).json({ message: 'Project name is required for update.' });
+        const errors = validationResult(req); // Assuming project validation will be added later
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ message: 'Validation failed.', errors: errors.array() });
         }
 
-        try {
-            // Update the project, ensuring it belongs to the authenticated user
-            const updatedProjectResult = await db.query(
-                'UPDATE projects SET name = $1, description = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND created_by = $4 RETURNING id, name, description, created_by, created_at, updated_at',
-                [name, description, id, user_id]
-            );
-            const updatedProject = updatedProjectResult.rows[0];
+        const { id } = req.params;
+        const { name, description } = req.body;
+        const user_id = req.user.user_id; // Get authenticated user's ID
 
-            if (updatedProjectResult.rows.length === 0) {
-                return res.status(404).json({ message: 'Project not found or you do not have permission to update.' });
+        try {
+            // Check if the project exists and belongs to the current user
+            const existingProject = await db.query('SELECT created_by FROM projects WHERE id = $1', [id]);
+            if (existingProject.rows.length === 0 || existingProject.rows[0].created_by !== user_id) {
+                return res.status(403).json({ message: 'You do not have permission to update this project.' });
             }
 
-            // Emit a Socket.IO event after successful update
-            io.emit('projectUpdated', { project: updatedProject, updaterId: user_id });
-            console.log(`Socket.IO: Emitted 'projectUpdated' for project ID: ${updatedProject.id}`);
-
-
-            res.status(200).json({
-                message: 'Project updated successfully!',
-                project: updatedProject,
-            });
-
+            const updatedProject = await db.query(
+                `UPDATE projects SET 
+                    name = COALESCE($1, name), 
+                    description = COALESCE($2, description), 
+                    updated_at = NOW() 
+                 WHERE id = $3 RETURNING *`,
+                [name, description, id]
+            );
+            emitProjectEvent('projectUpdated', updatedProject.rows[0]);
+            res.status(200).json({ message: 'Project updated successfully!', project: updatedProject.rows[0] });
         } catch (error) {
             console.error('Error updating project:', error.message);
             res.status(500).json({ message: 'Internal server error during project update.' });
         }
     };
 
-    // --- Delete a Project ---
+    // --- Delete Project ---
     const deleteProject = async (req, res) => {
-        const { id } = req.params; // Project ID from URL
-        const user_id = req.user.user_id; // Authenticated user ID
+        const { id } = req.params;
+        const user_id = req.user.user_id; // Get authenticated user's ID
 
         try {
-            // Delete the project, ensuring it belongs to the authenticated user
-            const deletedProjectResult = await db.query('DELETE FROM projects WHERE id = $1 AND created_by = $2 RETURNING id', [id, user_id]);
-            const deletedProject = deletedProjectResult.rows[0];
-
-            if (deletedProjectResult.rows.length === 0) {
-                return res.status(404).json({ message: 'Project not found or you do not have permission to delete.' });
+            // Check if the project exists and belongs to the current user
+            const existingProject = await db.query('SELECT created_by FROM projects WHERE id = $1', [id]);
+            if (existingProject.rows.length === 0 || existingProject.rows[0].created_by !== user_id) {
+                return res.status(403).json({ message: 'You do not have permission to delete this project.' });
             }
 
-            // Emit a Socket.IO event after successful deletion
-            io.emit('projectDeleted', { projectId: deletedProject.id, deleterId: user_id });
-            console.log(`Socket.IO: Emitted 'projectDeleted' for project ID: ${deletedProject.id}`);
-
-
+            // Note: ON DELETE CASCADE on foreign keys in tasks will handle associated tasks
+            const deletedProject = await db.query('DELETE FROM projects WHERE id = $1 RETURNING id', [id]);
+            if (deletedProject.rows.length === 0) {
+                return res.status(404).json({ message: 'Project not found.' });
+            }
+            emitProjectEvent('projectDeleted', { id: id });
             res.status(200).json({ message: 'Project deleted successfully!' });
-
         } catch (error) {
             console.error('Error deleting project:', error.message);
             res.status(500).json({ message: 'Internal server error during project deletion.' });
         }
     };
 
-    return { // <--- THIS RETURN IS CRUCIAL FOR EXPORTING THE FUNCTIONS
+    return {
         createProject,
         getProjects,
         getProjectById,

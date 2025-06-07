@@ -54,8 +54,9 @@ module.exports = (io) => {
             LEFT JOIN task_tags tt ON t.id = tt.task_id
             LEFT JOIN tags tg ON tt.tag_id = tg.id
             WHERE 
-                t.creator_id = $1 
-                OR t.assigned_to = $1 -- Tasks created by the user or assigned to the user
+                t.creator_id = $1                    -- Task created by the user
+                OR t.assigned_to = $1                 -- Task assigned to the user
+                OR p.created_by = $1                  -- Task belongs to a project created by the user
         `;
         const queryParams = [user_id];
         let paramIndex = 2; // Start index for additional parameters
@@ -110,7 +111,8 @@ module.exports = (io) => {
                 LEFT JOIN users u ON t.assigned_to = u.id
                 LEFT JOIN task_tags tt ON t.id = tt.task_id
                 LEFT JOIN tags tg ON tt.tag_id = tg.id
-                WHERE t.id = $1 AND (t.creator_id = $2 OR t.assigned_to = $2)
+                WHERE t.id = $1 
+                  AND (t.creator_id = $2 OR t.assigned_to = $2 OR p.created_by = $2) -- Access if creator, assigned, or project owner
                 GROUP BY t.id, p.name, u.username`,
                 [id, user_id]
             );
@@ -138,8 +140,18 @@ module.exports = (io) => {
 
         try {
             // First, verify the user has permission to update this task
-            const existingTask = await db.query('SELECT creator_id, assigned_to FROM tasks WHERE id = $1', [id]);
-            if (existingTask.rows.length === 0 || (existingTask.rows[0].creator_id !== user_id && existingTask.rows[0].assigned_to !== user_id)) {
+            // User can update if they are the creator, assigned, or the project owner
+            const existingTask = await db.query(
+                `SELECT t.creator_id, t.assigned_to, p.created_by AS project_creator_id
+                 FROM tasks t JOIN projects p ON t.project_id = p.id
+                 WHERE t.id = $1`, [id]
+            );
+            
+            if (existingTask.rows.length === 0 || 
+                (existingTask.rows[0].creator_id !== user_id && 
+                 existingTask.rows[0].assigned_to !== user_id && 
+                 existingTask.rows[0].project_creator_id !== user_id)
+            ) {
                 return res.status(403).json({ message: 'You do not have permission to update this task.' });
             }
 
@@ -171,9 +183,18 @@ module.exports = (io) => {
         const user_id = req.user.user_id; // Get authenticated user's ID
 
         try {
-            // Only allow the task creator or assigned user to delete the task
-            const existingTask = await db.query('SELECT creator_id, assigned_to FROM tasks WHERE id = $1', [id]);
-            if (existingTask.rows.length === 0 || (existingTask.rows[0].creator_id !== user_id && existingTask.rows[0].assigned_to !== user_id)) {
+            // Only allow the task creator, assigned user, or project owner to delete the task
+            const existingTask = await db.query(
+                `SELECT t.creator_id, t.assigned_to, p.created_by AS project_creator_id
+                 FROM tasks t JOIN projects p ON t.project_id = p.id
+                 WHERE t.id = $1`, [id]
+            );
+            
+            if (existingTask.rows.length === 0 || 
+                (existingTask.rows[0].creator_id !== user_id && 
+                 existingTask.rows[0].assigned_to !== user_id && 
+                 existingTask.rows[0].project_creator_id !== user_id)
+            ) {
                 return res.status(403).json({ message: 'You do not have permission to delete this task.' });
             }
 
@@ -195,9 +216,18 @@ module.exports = (io) => {
         const user_id = req.user.user_id; // Get authenticated user's ID
 
         try {
-            // Verify task exists and user has permission (creator or assigned)
-            const taskCheck = await db.query('SELECT creator_id, assigned_to FROM tasks WHERE id = $1', [taskId]);
-            if (taskCheck.rows.length === 0 || (taskCheck.rows[0].creator_id !== user_id && taskCheck.rows[0].assigned_to !== user_id)) {
+            // Verify task exists and user has permission (creator, assigned, or project owner)
+            const taskCheck = await db.query(
+                `SELECT t.creator_id, t.assigned_to, p.created_by AS project_creator_id
+                 FROM tasks t JOIN projects p ON t.project_id = p.id
+                 WHERE t.id = $1`, [taskId]
+            );
+
+            if (taskCheck.rows.length === 0 || 
+                (taskCheck.rows[0].creator_id !== user_id && 
+                 taskCheck.rows[0].assigned_to !== user_id && 
+                 taskCheck.rows[0].project_creator_id !== user_id)
+            ) {
                 return res.status(403).json({ message: 'You do not have permission to modify this task.' });
             }
 
@@ -228,9 +258,18 @@ module.exports = (io) => {
         const user_id = req.user.user_id; // Get authenticated user's ID
 
         try {
-            // Verify task exists and user has permission (creator or assigned)
-            const taskCheck = await db.query('SELECT creator_id, assigned_to FROM tasks WHERE id = $1', [taskId]);
-            if (taskCheck.rows.length === 0 || (taskCheck.rows[0].creator_id !== user_id && taskCheck.rows[0].assigned_to !== user_id)) {
+            // Verify task exists and user has permission (creator, assigned, or project owner)
+            const taskCheck = await db.query(
+                `SELECT t.creator_id, t.assigned_to, p.created_by AS project_creator_id
+                 FROM tasks t JOIN projects p ON t.project_id = p.id
+                 WHERE t.id = $1`, [taskId]
+            );
+
+            if (taskCheck.rows.length === 0 || 
+                (taskCheck.rows[0].creator_id !== user_id && 
+                 taskCheck.rows[0].assigned_to !== user_id && 
+                 taskCheck.rows[0].project_creator_id !== user_id)
+            ) {
                 return res.status(403).json({ message: 'You do not have permission to modify this task.' });
             }
 
