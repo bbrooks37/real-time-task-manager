@@ -1,45 +1,35 @@
 // project1/server/routes/taskRoutes.js
 const express = require('express');
-const {
-    createTask,
-    getTasks,
-    getTaskById,
-    updateTask,
-    deleteTask,
-    addTagToTask, // New endpoint for managing task tags
-    removeTagFromTask // New endpoint for managing task tags
-} = require('../controllers/taskController');
 const verifyToken = require('../middleware/authMiddleware'); // Import authentication middleware
 
-const router = express.Router();
+// Export a function that accepts io as an argument
+module.exports = (io) => { // <--- THIS LINE IS CRUCIAL: taskRoutes now accepts 'io'
+    // Now, require taskController.js and immediately call the exported function with 'io'
+    const {
+        createTask,
+        getTasks,
+        getTaskById,
+        updateTask,
+        deleteTask,
+        addTagToTask,
+        removeTagFromTask
+    } = require('../controllers/taskController')(io); // Pass io to controller
 
-// All task routes will require authentication
-router.use(verifyToken); // Apply middleware to all routes in this router
+    const router = express.Router();
 
-// Task CRUD Endpoints:
+    // All task routes will require authentication
+    router.use(verifyToken); // Apply middleware to all routes in this router
 
-// GET /api/tasks - Get all tasks (with optional filters)
-router.get('/', getTasks);
+    // Task CRUD Endpoints:
+    router.get('/', getTasks);
+    router.get('/:id', getTaskById);
+    router.post('/', createTask);
+    router.put('/:id', updateTask);
+    router.delete('/:id', deleteTask);
 
-// GET /api/tasks/:id - Get a single task by its ID
-router.get('/:id', getTaskById);
+    // Task-Tag Management Endpoints:
+    router.post('/:taskId/tags/:tagId', addTagToTask);
+    router.delete('/:taskId/tags/:tagId', removeTagFromTask);
 
-// POST /api/tasks - Create a new task
-router.post('/', createTask);
-
-// PUT /api/tasks/:id - Update an existing task by its ID
-router.put('/:id', updateTask);
-
-// DELETE /api/tasks/:id - Delete a task by its ID
-router.delete('/:id', deleteTask);
-
-// Task-Tag Management Endpoints:
-// These could be part of updateTask, but explicit endpoints offer more granular control
-// POST /api/tasks/:taskId/tags - Add a tag to a task
-router.post('/:taskId/tags/:tagId', addTagToTask);
-
-// DELETE /api/tasks/:taskId/tags - Remove a tag from a task
-router.delete('/:taskId/tags/:tagId', removeTagFromTask);
-
-
-module.exports = router;
+    return router; // Return the configured router
+};
