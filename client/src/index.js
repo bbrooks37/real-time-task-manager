@@ -7,6 +7,7 @@ const API_BASE_URL = 'http://localhost:5000/api';
 let socket; 
 let currentUser = null; 
 let currentToken = null; 
+let allTags = []; // Store all available tags
 
 // --- DOM Elements (will be assigned inside DOMContentLoaded) ---
 let authSection, mainAppSection, welcomeUsername, logoutBtn;
@@ -21,15 +22,21 @@ let globalMessageDiv;
 let registerUsername, registerEmail, registerPassword; 
 let loginEmail, loginPassword;                     
 
-// Modal related DOM elements
+// Modal related DOM elements (Task)
 let editTaskModal, editTaskForm, cancelEditTaskBtn;
 let editTaskId, editTaskOriginalProjectId;
 let editTaskTitle, editTaskDescription, editTaskDueDate, editTaskPrioritySelect, 
     editTaskStatusSelect, editTaskAssignedToSelect, editTaskProjectIdSelect, editTaskParentTaskIdInput;
+let editTaskTagsSelect; // Multi-select for tags in edit task modal
+let taskTagsSelect; // Multi-select for tags in create task form
+let editTaskOriginalTagsInput; // NEW: Hidden input to store original tags for comparison
 
-// NEW: Edit Project Modal related DOM elements
+// Edit Project Modal related DOM elements
 let editProjectModal, editProjectForm, cancelEditProjectBtn;
 let editProjectId, editProjectName, editProjectDescription;
+
+// Tag Management DOM elements
+let tagsSection, createTagForm, tagNameInput, tagsList, noTagsMessage;
 
 
 // --- Utility Functions ---
@@ -171,7 +178,7 @@ function renderApp() {
         initializeSocketIO(); 
         fetchProjects(); 
         fetchUsersForAssignment(); 
-        // Explicitly fetch all tasks for the logged-in user when rendering the app
+        fetchTags(); // Fetch all tags on app load
         fetchTasks(); 
     } else {
         if (authSection && mainAppSection) {
@@ -241,7 +248,7 @@ function renderProject(project) {
     });
 }
 
-// NEW: Function to show and populate the edit project modal
+// Function to show and populate the edit project modal
 function showEditProjectModal(project) {
     if (!editProjectModal) return;
 
@@ -252,7 +259,7 @@ function showEditProjectModal(project) {
     editProjectModal.classList.remove('hidden'); // Show the modal
 }
 
-// NEW: Function to hide the edit project modal
+// Function to hide the edit project modal
 function hideEditProjectModal() {
     if (editProjectModal) {
         editProjectModal.classList.add('hidden');
@@ -260,15 +267,13 @@ function hideEditProjectModal() {
     }
 }
 
-// NEW: Handle submission of the edit project form
+// Handle submission of the edit project form
 async function handleEditProjectSubmit(e) {
     e.preventDefault();
 
     const projectId = editProjectId.value;
     const name = editProjectName.value;
     const description = editProjectDescription.value;
-
-    const updates = { name, description };
 
     try {
         await updateProject(projectId, name, description); // Call existing updateProject function
@@ -368,6 +373,107 @@ async function fetchUsersForAssignment() {
     }
 }
 
+// --- Tag Functions ---
+
+async function fetchTags() {
+    try {
+        const data = await fetchData('/tags');
+        allTags = data.tags; // Store fetched tags globally
+        if (tagsList) { // If tagsList element exists
+            tagsList.innerHTML = ''; // Clear previous tags
+            if (allTags.length === 0) {
+                noTagsMessage.classList.remove('hidden');
+            } else {
+                noTagsMessage.classList.add('hidden');
+                allTags.forEach(tag => renderTag(tag));
+            }
+        }
+        populateTaskTagsDropdown(allTags); // Populate tags in the create task form
+        populateEditTaskTagDropdown(allTags); // Populate tags in the edit task modal
+    } catch (error) {
+        console.warn('Could not fetch tags. Error:', error.message);
+        showMessage(`Could not load tags: ${error.message}`, 'error');
+    }
+}
+
+function renderTag(tag) {
+    if (!tagsList) return;
+    const tagDiv = document.createElement('div');
+    tagDiv.id = `tag-${tag.id}`;
+    tagDiv.className = 'bg-gray-200 rounded-full px-4 py-2 text-sm font-semibold text-gray-700 flex items-center justify-between shadow-sm';
+    tagDiv.innerHTML = `
+        <span>${tag.name}</span>
+        <button data-id="${tag.id}" class="delete-tag-btn ml-2 text-red-500 hover:text-red-700 transition">
+            &times;
+        </button>
+    `;
+    tagsList.appendChild(tagDiv);
+
+    tagDiv.querySelector('.delete-tag-btn').addEventListener('click', (e) => {
+        const tagId = e.target.dataset.id;
+        if (confirm('Are you sure you want to delete this tag? This will also remove it from all tasks.')) {
+            deleteTag(tagId);
+        }
+    });
+}
+
+async function handleCreateTag(e) {
+    e.preventDefault();
+    if (!tagNameInput) return;
+    const name = tagNameInput.value.trim();
+    if (!name) {
+        showMessage('Tag name cannot be empty.', 'error');
+        return;
+    }
+
+    try {
+        await fetchData('/tags', 'POST', { name });
+        tagNameInput.value = '';
+        showMessage('Tag created!', 'success');
+        // Fetch and re-render tags to update lists and dropdowns
+        fetchTags(); 
+    } catch (error) {
+        showMessage(`Error creating tag: ${error.message}`, 'error');
+    }
+}
+
+async function deleteTag(id) {
+    try {
+        await fetchData(`/tags/${id}`, 'DELETE');
+        showMessage('Tag deleted!', 'success');
+        // Fetch and re-render tags to update lists and dropdowns
+        fetchTags(); 
+    } catch (error) {
+        showMessage(`Error deleting tag: ${error.message}`, 'error');
+    }
+}
+
+// Populate multi-select tag dropdown for create task form
+function populateTaskTagsDropdown(tags) {
+    if (!taskTagsSelect) return;
+    taskTagsSelect.innerHTML = ''; // Clear previous options
+    tags.forEach(tag => {
+        const option = document.createElement('option');
+        option.value = tag.id;
+        option.textContent = tag.name;
+        taskTagsSelect.appendChild(option);
+    });
+}
+
+
+// Populate multi-select tag dropdown for edit task modal
+function populateEditTaskTagDropdown(tags) {
+    if (!editTaskTagsSelect) return;
+    editTaskTagsSelect.innerHTML = ''; // Clear previous options
+    tags.forEach(tag => {
+        const option = document.createElement('option');
+        option.value = tag.id;
+        option.textContent = tag.name;
+        editTaskTagsSelect.appendChild(option);
+    });
+}
+
+
 // --- Task Functions ---
 
 async function fetchTasks(projectId = null, projectName = 'All Projects') {
@@ -401,7 +507,13 @@ function renderTask(task) {
     taskDiv.id = `task-${task.id}`;
     taskDiv.className = 'bg-white p-4 rounded-md shadow-sm flex justify-between items-start border-l-4 border-yellow-500';
 
-    const tagsHtml = task.tags ? task.tags.map(tag => `<span class="inline-block bg-gray-200 rounded-full px-3 py-1 text-sm font-semibold text-gray-700 mr-2 mb-2">${tag.name}</span>`).join('') : '';
+    // RENDER TAGS: Ensure tags are displayed with remove buttons
+    const tagsHtml = task.tags ? task.tags.map(tag => `
+        <span class="inline-flex items-center bg-gray-200 rounded-full px-3 py-1 text-sm font-semibold text-gray-700 mr-2 mb-2">
+            ${tag.name}
+            <button data-task-id="${task.id}" data-tag-id="${tag.id}" class="remove-tag-btn ml-1 text-gray-500 hover:text-red-700 transition text-xs font-bold">&times;</button>
+        </span>
+    `).join('') : '';
 
     taskDiv.innerHTML = `
         <div class="flex-grow">
@@ -427,6 +539,7 @@ function renderTask(task) {
                     data-assigned-to="${task.assigned_to || ''}"
                     data-project-id="${task.project_id}"
                     data-parent-task-id="${task.parent_task_id || ''}"
+                    data-tags='${JSON.stringify(task.tags || [])}'
                     class="edit-task-btn bg-yellow-500 text-white p-2 rounded-md text-sm hover:bg-yellow-600 transition shadow-sm">Edit</button>
             <button data-id="${task.id}" class="delete-task-btn bg-red-500 text-white p-2 rounded-md text-sm hover:bg-red-600 transition shadow-sm">Delete</button>
         </div>
@@ -446,6 +559,7 @@ function renderTask(task) {
             assigned_to: e.target.dataset.assignedTo,
             project_id: e.target.dataset.projectId,
             parent_task_id: e.target.dataset.parentTaskId,
+            tags: JSON.parse(e.target.dataset.tags || '[]') // Parse tags array
         };
         showEditTaskModal(taskData); 
     });
@@ -455,6 +569,23 @@ function renderTask(task) {
             deleteTask(taskId);
         }
     });
+
+    // Event listeners for removing tags from tasks
+    taskDiv.querySelectorAll('.remove-tag-btn').forEach(button => {
+        button.addEventListener('click', async (e) => {
+            const taskId = e.target.dataset.taskId;
+            const tagId = e.target.dataset.tagId;
+            if (confirm('Are you sure you want to remove this tag from the task?')) {
+                try {
+                    await fetchData(`/tasks/${taskId}/tags/${tagId}`, 'DELETE');
+                    showMessage('Tag removed from task!', 'success');
+                    fetchTasks(); // Re-fetch tasks to update display
+                } catch (error) {
+                    showMessage(`Error removing tag: ${error.message}`, 'error');
+                }
+            }
+        });
+    });
 }
 
 // Function to show and populate the edit task modal
@@ -463,6 +594,7 @@ function showEditTaskModal(task) {
 
     editTaskId.value = task.id;
     editTaskOriginalProjectId.value = task.project_id; 
+    editTaskOriginalTagsInput.value = JSON.stringify(task.tags || []); // NEW: Store original tags as JSON string
 
     editTaskTitle.value = task.title;
     editTaskDescription.value = task.description;
@@ -472,8 +604,22 @@ function showEditTaskModal(task) {
     
     editTaskAssignedToSelect.value = task.assigned_to || ''; 
     editTaskProjectIdSelect.value = task.project_id || '';
-
     editTaskParentTaskIdInput.value = task.parent_task_id;
+
+    // Select existing tags in the multi-select dropdown
+    if (editTaskTagsSelect) {
+        // Clear all selected options first
+        Array.from(editTaskTagsSelect.options).forEach(option => {
+            option.selected = false;
+        });
+        // Select options corresponding to task.tags
+        task.tags.forEach(taskTag => {
+            const option = editTaskTagsSelect.querySelector(`option[value="${taskTag.id}"]`);
+            if (option) {
+                option.selected = true;
+            }
+        });
+    }
 
     editTaskModal.classList.remove('hidden'); 
 }
@@ -483,6 +629,11 @@ function hideEditTaskModal() {
     if (editTaskModal) {
         editTaskModal.classList.add('hidden');
         editTaskForm.reset(); 
+        // Also clear tag selections and original tags on hide
+        if (editTaskTagsSelect) {
+            Array.from(editTaskTagsSelect.options).forEach(option => option.selected = false);
+        }
+        editTaskOriginalTagsInput.value = ''; // Clear original tags
     }
 }
 
@@ -504,10 +655,33 @@ async function handleEditTaskSubmit(e) {
         parent_task_id: editTaskParentTaskIdInput.value ? parseInt(editTaskParentTaskIdInput.value) : null,
     };
 
+    // Get selected tags from the multi-select
+    const selectedTagIds = Array.from(editTaskTagsSelect.selectedOptions)
+                                .map(option => parseInt(option.value));
+
     try {
+        // First, update the task itself
         await updateTask(taskId, updates); 
         showMessage('Task updated successfully!', 'success');
         hideEditTaskModal(); 
+
+        // Then, handle tag changes
+        // Retrieve original tags from the hidden input
+        const currentTaskTags = JSON.parse(editTaskOriginalTagsInput.value || '[]'); 
+
+
+        const tagsToAdd = selectedTagIds.filter(id => !currentTaskTags.some(tag => tag.id === id));
+        const tagsToRemove = currentTaskTags.filter(tag => !selectedTagIds.includes(tag.id)).map(tag => tag.id);
+
+        for (const tagId of tagsToRemove) {
+            await fetchData(`/tasks/${taskId}/tags/${tagId}`, 'DELETE');
+        }
+        for (const tagId of tagsToAdd) {
+            await fetchData(`/tasks/${taskId}/tags/${tagId}`, 'POST');
+        }
+        
+        fetchTasks(); // Re-fetch tasks to reflect all changes
+
     } catch (error) {
         showMessage(`Error updating task: ${error.message}`, 'error');
     }
@@ -525,6 +699,10 @@ async function handleCreateTask(e) {
     const assigned_to = taskAssignedToSelect.value || null; 
     const project_id = taskProjectIdSelect.value;
     const parent_task_id = taskParentTaskIdInput.value || null;
+    
+    // Get selected tags from the create task form
+    const selectedTagIds = Array.from(taskTagsSelect.selectedOptions)
+                                .map(option => parseInt(option.value));
 
     if (!title || !project_id) {
         showMessage('Task title and project must be selected.', 'error');
@@ -532,15 +710,26 @@ async function handleCreateTask(e) {
     }
 
     try {
-        await fetchData('/tasks', 'POST', {
+        const newTaskResponse = await fetchData('/tasks', 'POST', { // Get the response to access the new task ID
             title, description, due_date, priority, status,
             assigned_to: assigned_to ? parseInt(assigned_to) : null, 
             project_id: parseInt(project_id),
             parent_task_id: parent_task_id ? parseInt(parent_task_id) : null
         });
         
+        // After creating the task, associate selected tags
+        const newTaskId = newTaskResponse.task.id; // Access the ID from the response
+        for (const tagId of selectedTagIds) {
+            await fetchData(`/tasks/${newTaskId}/tags/${tagId}`, 'POST');
+        }
+
         showMessage('Task created!', 'success');
         createTaskForm.reset(); 
+        // Ensure dropdowns are reset after creation
+        Array.from(taskTagsSelect.options).forEach(option => option.selected = false);
+        // Also ensure multi-selects are cleared.
+        Array.from(editTaskTagsSelect.options).forEach(option => option.selected = false); // Clear edit modal's tags too
+
     }
     catch (error) {
         showMessage(`Error creating task: ${error.message}`, 'error');
@@ -708,6 +897,7 @@ document.addEventListener('DOMContentLoaded', () => {
     taskParentTaskIdInput = document.getElementById('task-parent-task-id');
     tasksList = document.getElementById('tasks-list');
     noTasksMessage = document.getElementById('no-tasks-message');
+    taskTagsSelect = document.getElementById('task-tags'); // Assign tags multi-select for create task form
 
     // Edit Task Modal Elements
     editTaskModal = document.getElementById('edit-task-modal');
@@ -723,14 +913,23 @@ document.addEventListener('DOMContentLoaded', () => {
     editTaskAssignedToSelect = document.getElementById('edit-task-assigned-to');
     editTaskProjectIdSelect = document.getElementById('edit-task-project-id');
     editTaskParentTaskIdInput = document.getElementById('edit-task-parent-task-id');
+    editTaskTagsSelect = document.getElementById('edit-task-tags'); // Assign tags multi-select for edit task form
+    editTaskOriginalTagsInput = document.getElementById('edit-task-original-tags'); // NEW: Assign hidden input
 
-    // NEW: Edit Project Modal Elements
+    // Edit Project Modal Elements
     editProjectModal = document.getElementById('edit-project-modal');
     editProjectForm = document.getElementById('edit-project-form');
     cancelEditProjectBtn = document.getElementById('cancel-edit-project-btn');
     editProjectId = document.getElementById('edit-project-id');
     editProjectName = document.getElementById('edit-project-name');
     editProjectDescription = document.getElementById('edit-project-description');
+
+    // Tag Management Elements
+    tagsSection = document.getElementById('tags-section'); 
+    createTagForm = document.getElementById('create-tag-form');
+    tagNameInput = document.getElementById('tag-name');
+    tagsList = document.getElementById('tags-list');
+    noTagsMessage = document.getElementById('no-tags-message');
 
 
     // Attach Event Listeners
@@ -753,7 +952,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // NEW: Event listeners for the edit project modal
+    // Event listeners for the edit project modal
     editProjectForm.addEventListener('submit', handleEditProjectSubmit);
     cancelEditProjectBtn.addEventListener('click', hideEditProjectModal);
     editProjectModal.addEventListener('click', (e) => {
@@ -761,6 +960,12 @@ document.addEventListener('DOMContentLoaded', () => {
             hideEditProjectModal();
         }
     });
+
+    // Event listener for create tag form
+    if (createTagForm) { 
+        createTagForm.addEventListener('submit', handleCreateTag);
+    }
+
 
     // Check for existing token/user in localStorage on page load
     currentToken = localStorage.getItem('jwt_token');
