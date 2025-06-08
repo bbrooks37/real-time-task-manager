@@ -1,8 +1,9 @@
 // client/src/index.js
 
 // --- Global Variables ---
-// Dynamically determine API_BASE_URL using Webpack's process.env
-const API_BASE_URL = process.env.API_BASE_URL; 
+// Directly specify the API_BASE_URL to ensure it's always correct,
+// bypassing potential issues with process.env in some frontend build environments.
+const API_BASE_URL = 'https://real-time-task-manager-fac11501856a.herokuapp.com/api'; 
 
 let socket; 
 let currentUser = null; 
@@ -88,7 +89,7 @@ function showAuthMessage(errorData, type = 'error') {
 
 function clearAuthMessages() {
     if (authMessageDiv) { 
-        authMessageDiv.textContent = '';
+        authAuthMessageDiv.textContent = '';
     }
 }
 
