@@ -1,8 +1,10 @@
 // client/src/index.js
 
 // --- Global Variables ---
-// Using hardcoded URL as we reverted from frontend bundlers like Webpack/Vite
-const API_BASE_URL = 'http://localhost:5000/api'; 
+// Dynamically determine API_BASE_URL using Webpack's process.env
+// In local development, this will be your .env.development value (localhost:5000)
+// In production, this will be your .env.production value (your Heroku backend URL)
+const API_BASE_URL = process.env.API_BASE_URL; 
 
 let socket; 
 let currentUser = null; 
@@ -399,7 +401,7 @@ async function fetchTags() {
         }
         populateTaskTagsDropdown(allTags); // Populate tags in the create task form
         populateEditTaskTagDropdown(allTags); // Populate tags in the edit task modal
-        populateTaskFilterTagDropdown(allTags); // NEW: Populate tags in the filter dropdown
+        populateTaskFilterTagDropdown(allTags); // Populate tags in the filter dropdown
     } catch (error) {
         console.warn('Could not fetch tags. Error:', error.message);
         showMessage(`Could not load tags: ${error.message}`, 'error');
