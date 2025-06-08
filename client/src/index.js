@@ -1,4 +1,4 @@
-// client/src/index.js
+// project1/client/src/index.js
 
 // --- Global Variables ---
 // Dynamically determine API_BASE_URL using Webpack's process.env

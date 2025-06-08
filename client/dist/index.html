@@ -1,29 +1,346 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Real-time Task Manager</title><script src="https://cdn.tailwindcss.com"></script><style>/* Custom font import for better aesthetics */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Task Manager</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="./src/styles.css">
+    <style>
+        /* Ensuring Inter font is applied globally by Tailwind config */
         body {
             font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
-        /* Basic modal backdrop */
-        .modal-backdrop {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000; /* Ensure it's on top */
+        /* Styling for multi-select dropdowns */
+        select[multiple] {
+            height: auto; /* Allow height to adjust based on content */
+            min-height: 96px; /* Minimum height for 4 options (24px line-height * 4) */
         }
-        /* Modal content styles */
-        .modal-content {
-            background-color: white;
-            padding: 2rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            width: 90%;
-            max-width: 600px;
-            max-height: 90vh; /* Limit height for scrollable content */
-            overflow-y: auto; /* Enable scrolling if content overflows */
-        }</style><base href="/"><script defer="defer" src="/js/main.95d5424145587cae2dce.js"></script></head><body class="bg-gray-100 flex items-center justify-center min-h-screen p-4"><div id="app" class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md md:max-w-xl lg:max-w-3xl"><h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Real-time Task Manager</h1><div id="auth-section" class="mb-8"><h2 class="text-2xl font-semibold text-gray-700 mb-4 text-center">User Authentication</h2><div id="auth-forms" class="space-y-4"><div id="register-form" class="bg-blue-50 p-6 rounded-md shadow-inner"><h3 class="text-xl font-medium text-blue-700 mb-3">Register</h3><input id="register-username" placeholder="Username" class="w-full p-3 mb-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"> <input type="email" id="register-email" placeholder="Email" class="w-full p-3 mb-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"> <input type="password" id="register-password" placeholder="Password" class="w-full p-3 mb-4 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"> <button id="register-btn" class="w-full bg-blue-600 text-white p-3 rounded-md hover:bg-blue-700 transition duration-300 shadow-md">Register</button><p class="text-sm text-gray-600 mt-2 text-center">Already have an account? <button id="show-login-btn" class="text-blue-600 font-medium hover:underline">Login here</button></p></div><div id="login-form" class="bg-green-50 p-6 rounded-md shadow-inner hidden"><h3 class="text-xl font-medium text-green-700 mb-3">Login</h3><input type="email" id="login-email" placeholder="Email" class="w-full p-3 mb-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"> <input type="password" id="login-password" placeholder="Password" class="w-full p-3 mb-4 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"> <button id="login-btn" class="w-full bg-green-600 text-white p-3 rounded-md hover:bg-green-700 transition duration-300 shadow-md">Login</button><p class="text-sm text-gray-600 mt-2 text-center">New user? <button id="show-register-btn" class="text-green-600 font-medium hover:underline">Register here</button></p></div></div><div id="auth-message" class="mt-4 text-center text-red-600"></div></div><div id="main-app-section" class="hidden"><div class="flex justify-between items-center mb-6"><h2 class="text-2xl font-semibold text-gray-700">Welcome, <span id="welcome-username" class="text-blue-600">Guest</span>!</h2><button id="logout-btn" class="bg-red-500 text-white p-2 rounded-md hover:bg-red-600 transition duration-300 shadow-md">Logout</button></div><div id="projects-section" class="mb-8 p-6 bg-purple-50 rounded-lg shadow-inner"><h3 class="text-xl font-semibold text-purple-700 mb-4">Your Projects</h3><form id="create-project-form" class="flex gap-2 mb-4"><input id="project-name" placeholder="New Project Name" class="flex-grow p-2 border border-gray-300 rounded-md"> <button type="submit" class="bg-purple-600 text-white p-2 rounded-md hover:bg-purple-700 transition duration-300 shadow-md">Add Project</button></form><div id="projects-list" class="space-y-3"><p class="text-gray-500 text-center" id="no-projects-message">No projects yet. Create one!</p></div></div><div id="tags-section" class="mb-8 p-6 bg-indigo-50 rounded-lg shadow-inner"><h3 class="text-xl font-semibold text-indigo-700 mb-4">Manage Tags</h3><form id="create-tag-form" class="flex gap-2 mb-4"><input id="tag-name" placeholder="New Tag Name" class="flex-grow p-2 border border-gray-300 rounded-md"> <button type="submit" class="bg-indigo-600 text-white p-2 rounded-md hover:bg-indigo-700 transition duration-300 shadow-md">Add Tag</button></form><div id="tags-list" class="flex flex-wrap gap-2"><p class="text-gray-500 text-center" id="no-tags-message">No tags yet. Create one!</p></div></div><div id="tasks-section" class="p-6 bg-yellow-50 rounded-lg shadow-inner"><h3 class="text-xl font-semibold text-yellow-700 mb-4">Tasks (<span id="current-project-name">All Projects</span>)</h3><div class="mb-4 p-4 bg-yellow-100 rounded-md shadow-sm"><h4 class="text-lg font-semibold text-yellow-800 mb-2">Filter Tasks</h4><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"><input id="task-filter-search" placeholder="Search title/description" class="p-2 border border-gray-300 rounded-md"> <select id="task-filter-priority" class="p-2 border border-gray-300 rounded-md"><option value="">All Priorities</option><option value="low">Low Priority</option><option value="medium">Medium Priority</option><option value="high">High Priority</option><option value="urgent">Urgent Priority</option></select> <select id="task-filter-status" class="p-2 border border-gray-300 rounded-md"><option value="">All Statuses</option><option value="pending">Pending</option><option value="in-progress">In Progress</option><option value="completed">Completed</option><option value="blocked">Blocked</option><option value="archived">Archived</option></select> <select id="task-filter-assigned-to" class="p-2 border border-gray-300 rounded-md"><option value="">All Assignees</option></select> <label for="task-filter-tags" class="block text-sm font-medium text-gray-700 col-span-full md:col-span-1 lg:col-span-2 xl:col-span-1">Filter by Tags:</label> <select id="task-filter-tags" multiple="multiple" class="p-2 border border-gray-300 rounded-md col-span-full md:col-span-1 lg:col-span-2 xl:col-span-3 h-24"></select></div><button id="apply-filters-btn" class="mt-4 w-full bg-yellow-600 text-white p-2 rounded-md hover:bg-yellow-700 transition duration-300 shadow-md">Apply Filters</button> <button id="clear-filters-btn" class="mt-2 w-full bg-gray-500 text-white p-2 rounded-md hover:bg-gray-600 transition duration-300 shadow-md">Clear Filters</button></div><form id="create-task-form" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4"><input id="task-title" placeholder="Task Title" class="p-2 border border-gray-300 rounded-md col-span-full"> <textarea id="task-description" placeholder="Description (optional)" class="p-2 border border-gray-300 rounded-md h-20"></textarea> <input type="date" id="task-due-date" class="p-2 border border-gray-300 rounded-md"> <select id="task-priority" class="p-2 border border-gray-300 rounded-md"><option value="low">Low Priority</option><option value="medium" selected="selected">Medium Priority</option><option value="high">High Priority</option><option value="urgent">Urgent Priority</option></select> <select id="task-status" class="p-2 border border-gray-300 rounded-md"><option value="pending">Pending</option><option value="in-progress">In Progress</option><option value="completed">Completed</option><option value="blocked">Blocked</option><option value="archived">Archived</option></select> <select id="task-assigned-to" class="p-2 border border-gray-300 rounded-md"><option value="">Assign to...</option></select> <select id="task-project-id" class="p-2 border border-gray-300 rounded-md" required><option value="">Select Project...</option></select> <label for="task-tags" class="block text-sm font-medium text-gray-700 col-span-full">Tags</label> <select id="task-tags" multiple="multiple" class="p-2 border border-gray-300 rounded-md col-span-full focus:ring-yellow-500 focus:border-yellow-500 h-24"></select> <input type="number" id="task-parent-task-id" placeholder="Parent Task ID (for subtask)" class="p-2 border border-gray-300 rounded-md"> <button type="submit" class="bg-yellow-600 text-white p-2 rounded-md hover:bg-yellow-700 transition duration-300 shadow-md col-span-full">Add Task</button></form><div id="tasks-list" class="space-y-3"><p class="text-gray-500 text-center" id="no-tasks-message">No tasks for this project yet. Create one!</p></div></div></div><div id="global-message" class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-center p-3 rounded-md shadow-lg hidden"></div></div><div id="edit-task-modal" class="modal-backdrop hidden"><div class="modal-content"><h3 class="text-2xl font-bold mb-4 text-gray-800">Edit Task</h3><form id="edit-task-form" class="grid grid-cols-1 md:grid-cols-2 gap-4"><input type="hidden" id="edit-task-id"> <input type="hidden" id="edit-task-original-project-id"> <input type="hidden" id="edit-task-original-tags"> <label for="edit-task-title" class="block text-sm font-medium text-gray-700">Task Title</label> <input id="edit-task-title" class="p-2 border border-gray-300 rounded-md col-span-full focus:ring-blue-500 focus:border-blue-500" required> <label for="edit-task-description" class="block text-sm font-medium text-gray-700">Description</label> <textarea id="edit-task-description" placeholder="Description (optional)" class="p-2 border border-gray-300 rounded-md h-20 col-span-full focus:ring-blue-500 focus:border-blue-500"></textarea> <label for="edit-task-due-date" class="block text-sm font-medium text-gray-700">Due Date</label> <input type="date" id="edit-task-due-date" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"> <label for="edit-task-priority" class="block text-sm font-medium text-gray-700">Priority</label> <select id="edit-task-priority" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"><option value="low">Low Priority</option><option value="medium">Medium Priority</option><option value="high">High Priority</option><option value="urgent">Urgent Priority</option></select> <label for="edit-task-status" class="block text-sm font-medium text-gray-700">Status</label> <select id="edit-task-status" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"><option value="pending">Pending</option><option value="in-progress">In Progress</option><option value="completed">Completed</option><option value="blocked">Blocked</option><option value="archived">Archived</option></select> <label for="edit-task-assigned-to" class="block text-sm font-medium text-gray-700">Assign To</label> <select id="edit-task-assigned-to" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"><option value="">Unassigned</option></select> <label for="edit-task-project-id" class="block text-sm font-medium text-gray-700">Project</label> <select id="edit-task-project-id" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" required><option value="">Select Project...</option></select> <label for="edit-task-tags" class="block text-sm font-medium text-gray-700 col-span-full">Tags</label> <select id="edit-task-tags" multiple="multiple" class="p-2 border border-gray-300 rounded-md col-span-full focus:ring-blue-500 focus:border-blue-500 h-24"></select> <label for="edit-task-parent-task-id" class="block text-sm font-medium text-gray-700">Parent Task ID</label> <input type="number" id="edit-task-parent-task-id" placeholder="For subtask" class="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"><div class="col-span-full flex justify-end space-x-2 mt-4"><button type="submit" class="bg-blue-600 text-white p-3 rounded-md hover:bg-blue-700 transition duration-300 shadow-md">Save Changes</button> <button type="button" id="cancel-edit-task-btn" class="bg-gray-500 text-white p-3 rounded-md hover:bg-gray-600 transition duration-300 shadow-md">Cancel</button></div></form></div></div><div id="edit-project-modal" class="modal-backdrop hidden"><div class="modal-content"><h3 class="text-2xl font-bold mb-4 text-gray-800">Edit Project</h3><form id="edit-project-form" class="grid grid-cols-1 gap-4"><input type="hidden" id="edit-project-id"> <label for="edit-project-name" class="block text-sm font-medium text-gray-700">Project Name</label> <input id="edit-project-name" class="p-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500" required> <label for="edit-project-description" class="block text-sm font-medium text-gray-700">Description</label> <textarea id="edit-project-description" placeholder="Description (optional)" class="p-2 border border-gray-300 rounded-md h-20 focus:ring-purple-500 focus:border-purple-500"></textarea><div class="col-span-full flex justify-end space-x-2 mt-4"><button type="submit" class="bg-purple-600 text-white p-3 rounded-md hover:bg-purple-700 transition duration-300 shadow-md">Save Changes</button> <button type="button" id="cancel-edit-project-btn" class="bg-gray-500 text-white p-3 rounded-md hover:bg-gray-600 transition duration-300 shadow-md">Cancel</button></div></form></div></div><script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script><script src="/src/index.js"></script></body></html>
+        /* Custom styles for focus rings and rounded corners if not fully covered by Tailwind */
+        input:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.45); /* blue-500 with 45% opacity */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <!-- Global Message Display -->
+    <div id="global-message" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 p-3 rounded-md shadow-lg text-white z-50"></div>
+
+    <!-- Authentication Section -->
+    <section id="auth-section" class="w-full max-w-md bg-white p-8 rounded-lg shadow-xl hidden">
+        <h2 class="text-3xl font-bold text-center text-gray-800 mb-6">Welcome</h2>
+
+        <!-- Authentication Forms -->
+        <div id="login-form" class="space-y-4">
+            <h3 class="text-xl font-semibold text-gray-700 text-center mb-4">Login to your account</h3>
+            <div class="mb-4">
+                <label for="login-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" id="login-email" placeholder="your.email@example.com" required class="mt-1 block w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 rounded-md">
+            </div>
+            <div class="mb-6">
+                <label for="login-password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <input type="password" id="login-password" placeholder="••••••••" required class="mt-1 block w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 rounded-md">
+            </div>
+            <button id="login-btn" class="w-full bg-indigo-600 text-white p-3 rounded-md shadow-md hover:bg-indigo-700 transition">Log In</button>
+            <p id="auth-message" class="text-center text-red-600 mt-4"></p>
+            <p class="text-center text-gray-600 mt-4">Don't have an account? <button id="show-register-btn" class="text-indigo-600 hover:text-indigo-800 font-medium transition">Register</button></p>
+        </div>
+
+        <div id="register-form" class="hidden space-y-4">
+            <h3 class="text-xl font-semibold text-gray-700 text-center mb-4">Create a new account</h3>
+            <div class="mb-4">
+                <label for="register-username" class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                <input type="text" id="register-username" placeholder="Choose a username" required class="mt-1 block w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 rounded-md">
+            </div>
+            <div class="mb-4">
+                <label for="register-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" id="register-email" placeholder="your.email@example.com" required class="mt-1 block w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 rounded-md">
+            </div>
+            <div class="mb-6">
+                <label for="register-password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <input type="password" id="register-password" placeholder="At least 6 characters" required class="mt-1 block w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 rounded-md">
+            </div>
+            <button id="register-btn" class="w-full bg-indigo-600 text-white p-3 rounded-md shadow-md hover:bg-indigo-700 transition">Register</button>
+            <p id="auth-message-register" class="text-center text-red-600 mt-4"></p>
+            <p class="text-center text-gray-600 mt-4">Already have an account? <button id="show-login-btn" class="text-indigo-600 hover:text-indigo-800 font-medium transition">Log In</button></p>
+        </div>
+    </section>
+
+    <!-- Main Application Section -->
+    <section id="main-app-section" class="w-full max-w-4xl bg-gray-100 p-8 rounded-lg shadow-xl hidden">
+        <header class="flex justify-between items-center bg-white p-4 rounded-md shadow-sm mb-6">
+            <h1 class="text-2xl font-bold text-gray-800">Welcome, <span id="welcome-username" class="text-indigo-600">User</span>!</h1>
+            <button id="logout-btn" class="bg-red-500 text-white p-2 rounded-md hover:bg-red-600 transition shadow-sm">Log Out</button>
+        </header>
+
+        <!-- Projects Section -->
+        <section id="projects-section" class="mb-8 p-6 bg-white rounded-lg shadow-md">
+            <h3 class="text-2xl font-bold text-gray-800 mb-4">Your Projects</h3>
+            <form id="create-project-form" class="flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-3 mb-6">
+                <input type="text" id="project-name" placeholder="New Project Name" required class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500 rounded-md">
+                <button type="submit" class="bg-purple-600 text-white p-3 rounded-md shadow-md hover:bg-purple-700 transition">Create Project</button>
+            </form>
+            <div id="projects-list" class="space-y-4">
+                <!-- Projects will be rendered here by JavaScript -->
+                <p id="no-projects-message" class="text-center text-gray-500 hidden">You haven't created any projects yet. Start by creating one!</p>
+            </div>
+        </section>
+
+        <!-- Tags Management Section -->
+        <section id="tags-section" class="mb-8 p-6 bg-white rounded-lg shadow-md">
+            <h3 class="text-2xl font-bold text-gray-800 mb-4">Manage Tags</h3>
+            <form id="create-tag-form" class="flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-3 mb-6">
+                <input type="text" id="tag-name" placeholder="New Tag Name" required class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 rounded-md">
+                <button type="submit" class="bg-green-600 text-white p-3 rounded-md shadow-md hover:bg-green-700 transition">Create Tag</button>
+            </form>
+            <div id="tags-list" class="flex flex-wrap gap-3">
+                <!-- Tags will be rendered here by JavaScript -->
+                <p id="no-tags-message" class="text-center text-gray-500 hidden w-full">No tags created yet.</p>
+            </div>
+        </section>
+
+
+        <!-- Tasks Section -->
+        <section id="tasks-section" class="mb-8 p-6 bg-white rounded-lg shadow-md">
+            <h3 class="text-2xl font-bold text-gray-800 mb-4">Tasks (<span id="current-project-name">All Projects</span>)</h3>
+
+            <!-- Filter Tasks Section -->
+            <div class="mb-6 p-4 bg-gray-50 rounded-lg shadow-inner">
+                <h4 class="text-lg font-semibold text-gray-700 mb-3">Filter Tasks</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                    <div>
+                        <label for="task-filter-search" class="block text-sm font-medium text-gray-700 mb-1">Search Title/Description</label>
+                        <input type="text" id="task-filter-search" placeholder="Search tasks..." class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                    </div>
+                    <div>
+                        <label for="task-filter-priority" class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                        <select id="task-filter-priority" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                            <option value="">All Priorities</option>
+                            <option value="urgent">Urgent</option>
+                            <option value="high">High</option>
+                            <option value="medium">Medium</option>
+                            <option value="low">Low</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="task-filter-status" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                        <select id="task-filter-status" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                            <option value="">All Statuses</option>
+                            <option value="pending">Pending</option>
+                            <option value="in-progress">In-Progress</option>
+                            <option value="completed">Completed</option>
+                            <option value="blocked">Blocked</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="task-filter-assigned-to" class="block text-sm font-medium text-gray-700 mb-1">Assignee</label>
+                        <select id="task-filter-assigned-to" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                            <option value="">All Assignees</option>
+                            <!-- Users will be dynamically populated here by JavaScript -->
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label for="task-filter-tags" class="block text-sm font-medium text-gray-700 mb-1">Filter by Tags:</label>
+                    <select id="task-filter-tags" multiple class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md h-24">
+                        <!-- Tags will be dynamically populated here by JavaScript -->
+                    </select>
+                </div>
+                <div class="flex space-x-2">
+                    <button id="apply-filters-btn" class="bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition shadow-sm">Apply Filters</button>
+                    <button id="clear-filters-btn" class="bg-gray-400 text-white p-2 rounded-md hover:bg-gray-500 transition shadow-sm">Clear Filters</button>
+                </div>
+            </div>
+
+            <!-- Create Task Form Section -->
+            <h4 class="text-xl font-semibold text-gray-800 mb-3">Create New Task</h4>
+            <form id="create-task-form" class="bg-gray-100 p-6 rounded-lg shadow-md mb-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Task Title -->
+                <div>
+                    <label for="task-title" class="block text-sm font-medium text-gray-700 mb-1">Task Title <span class="text-red-500">*</span></label>
+                    <input type="text" id="task-title" placeholder="e.g., Complete project report" required class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                </div>
+                <!-- Description (optional) -->
+                <div>
+                    <label for="task-description" class="block text-sm font-medium text-gray-700 mb-1">Description (optional)</label>
+                    <textarea id="task-description" placeholder="Add more details about the task..." rows="3" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md"></textarea>
+                </div>
+                <!-- Due Date -->
+                <div>
+                    <label for="task-due-date" class="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+                    <input type="date" id="task-due-date" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                </div>
+                <!-- Priority -->
+                <div>
+                    <label for="task-priority" class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                    <select id="task-priority" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                        <option value="medium">Medium</option>
+                        <option value="urgent">Urgent</option>
+                        <option value="high">High</option>
+                        <option value="low">Low</option>
+                    </select>
+                </div>
+                <!-- Status -->
+                <div>
+                    <label for="task-status" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <select id="task-status" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                        <option value="pending">Pending</option>
+                        <option value="in-progress">In-Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="blocked">Blocked</option>
+                    </select>
+                </div>
+                <!-- Assign to -->
+                <div>
+                    <label for="task-assigned-to" class="block text-sm font-medium text-gray-700 mb-1">Assign to...</label>
+                    <select id="task-assigned-to" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                        <option value="">Select Assignee...</option>
+                        <!-- Users will be dynamically populated here by JavaScript -->
+                    </select>
+                </div>
+                <!-- Select Project -->
+                <div>
+                    <label for="task-project-id" class="block text-sm font-medium text-gray-700 mb-1">Select Project <span class="text-red-500">*</span></label>
+                    <select id="task-project-id" required class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                        <option value="">Select Project...</option>
+                        <!-- Projects will be dynamically populated here by JavaScript -->
+                    </select>
+                </div>
+                <!-- Tags -->
+                <div>
+                    <label for="task-tags" class="block text-sm font-medium text-gray-700 mb-1">Tags</label>
+                    <select id="task-tags" multiple class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md h-24">
+                        <!-- Tags will be dynamically populated here by JavaScript -->
+                    </select>
+                </div>
+                <!-- Parent Task ID (for subtask) -->
+                <div>
+                    <label for="task-parent-task-id" class="block text-sm font-medium text-gray-700 mb-1">Parent Task ID (for subtask)</label>
+                    <input type="number" id="task-parent-task-id" placeholder="Optional: ID of parent task" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                </div>
+                
+                <!-- Add Task Button - Spanning two columns on larger screens -->
+                <div class="md:col-span-2">
+                    <button type="submit" class="w-full bg-indigo-600 text-white p-3 rounded-md shadow-md hover:bg-indigo-700 transition">Add Task</button>
+                </div>
+            </form>
+
+            <!-- Tasks List -->
+            <div id="tasks-list" class="space-y-4">
+                <!-- Tasks will be rendered here by JavaScript -->
+                <p id="no-tasks-message" class="text-center text-gray-500 hidden">No tasks to display for this project. Create one!</p>
+            </div>
+        </section>
+    </section>
+
+    <!-- Edit Task Modal -->
+    <div id="edit-task-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
+            <h3 class="text-xl font-semibold text-gray-800 mb-4">Edit Task</h3>
+            <form id="edit-task-form" class="grid grid-cols-1 gap-4">
+                <input type="hidden" id="edit-task-id">
+                <input type="hidden" id="edit-task-original-project-id">
+                <input type="hidden" id="edit-task-original-tags"> <!-- Hidden input to store original tags -->
+
+                <div>
+                    <label for="edit-task-title" class="block text-sm font-medium text-gray-700 mb-1">Task Title <span class="text-red-500">*</span></label>
+                    <input type="text" id="edit-task-title" required class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                </div>
+                <div>
+                    <label for="edit-task-description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea id="edit-task-description" rows="3" class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></textarea>
+                </div>
+                <div>
+                    <label for="edit-task-due-date" class="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+                    <input type="date" id="edit-task-due-date" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                </div>
+                <div>
+                    <label for="edit-task-priority" class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                    <select id="edit-task-priority" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                        <option value="medium">Medium</option>
+                        <option value="urgent">Urgent</option>
+                        <option value="high">High</option>
+                        <option value="low">Low</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="edit-task-status" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <select id="edit-task-status" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                        <option value="pending">Pending</option>
+                        <option value="in-progress">In-Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="blocked">Blocked</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="edit-task-assigned-to" class="block text-sm font-medium text-gray-700 mb-1">Assigned To</label>
+                    <select id="edit-task-assigned-to" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                        <option value="">Select Assignee...</option>
+                        <!-- Users populated by JS -->
+                    </select>
+                </div>
+                <div>
+                    <label for="edit-task-project-id" class="block text-sm font-medium text-gray-700 mb-1">Project</label>
+                    <select id="edit-task-project-id" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                        <option value="">Select Project...</option>
+                        <!-- Projects populated by JS -->
+                    </select>
+                </div>
+                <div>
+                    <label for="edit-task-parent-task-id" class="block text-sm font-medium text-gray-700 mb-1">Parent Task ID</label>
+                    <input type="number" id="edit-task-parent-task-id" placeholder="Optional: ID of parent task" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                </div>
+                <div>
+                    <label for="edit-task-tags" class="block text-sm font-medium text-gray-700 mb-1">Tags</label>
+                    <select id="edit-task-tags" multiple class="mt-1 block w-full p-2 border border-gray-300 rounded-md h-24">
+                        <!-- Tags populated by JS -->
+                    </select>
+                </div>
+
+                <div class="flex justify-end space-x-2 mt-4">
+                    <button type="button" id="cancel-edit-task-btn" class="bg-gray-400 text-white p-2 rounded-md hover:bg-gray-500 transition">Cancel</button>
+                    <button type="submit" class="bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Project Modal -->
+    <div id="edit-project-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
+            <h3 class="text-xl font-semibold text-gray-800 mb-4">Edit Project</h3>
+            <form id="edit-project-form" class="grid grid-cols-1 gap-4">
+                <input type="hidden" id="edit-project-id">
+                <div>
+                    <label for="edit-project-name" class="block text-sm font-medium text-gray-700 mb-1">Project Name <span class="text-red-500">*</span></label>
+                    <input type="text" id="edit-project-name" required class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                </div>
+                <div>
+                    <label for="edit-project-description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea id="edit-project-description" rows="3" class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></textarea>
+                </div>
+                <div class="flex justify-end space-x-2 mt-4">
+                    <button type="button" id="cancel-edit-project-btn" class="bg-gray-400 text-white p-2 rounded-md hover:bg-gray-500 transition">Cancel</button>
+                    <button type="submit" class="bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+    <!-- Socket.IO Client Script -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <!-- Your Application's Main JavaScript -->
+    <script src="./src/index.js"></script>
+</body>
+</html>
