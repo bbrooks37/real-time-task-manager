@@ -69,7 +69,7 @@ db.query('SELECT NOW() AS current_time')
         process.exit(1); 
     });
 
-// API Routes
+// API Routes with Socket.IO
 app.use('/api/auth', authRoutes(io)); 
 app.use('/api/projects', projectRoutes(io)); 
 app.use('/api/tasks', taskRoutes(io)); 
