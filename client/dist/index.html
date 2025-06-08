@@ -156,6 +156,41 @@
                         <!-- Tags will be dynamically populated here by JavaScript -->
                     </select>
                 </div>
+                
+                <!-- NEW: Due Date Range Filters -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label for="task-filter-due-date-start" class="block text-sm font-medium text-gray-700 mb-1">Due Date From:</label>
+                        <input type="date" id="task-filter-due-date-start" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                    </div>
+                    <div>
+                        <label for="task-filter-due-date-end" class="block text-sm font-medium text-gray-700 mb-1">Due Date To:</label>
+                        <input type="date" id="task-filter-due-date-end" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                    </div>
+                </div>
+
+                <!-- NEW: Sorting Controls -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label for="task-filter-order-by" class="block text-sm font-medium text-gray-700 mb-1">Sort By:</label>
+                        <select id="task-filter-order-by" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                            <option value="created_at">Creation Date</option>
+                            <option value="due_date">Due Date</option>
+                            <option value="priority">Priority</option>
+                            <option value="title">Title</option>
+                            <option value="status">Status</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="task-filter-order-direction" class="block text-sm font-medium text-gray-700 mb-1">Sort Direction:</label>
+                        <select id="task-filter-order-direction" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 rounded-md">
+                            <option value="DESC">Descending</option>
+                            <option value="ASC">Ascending</option>
+                        </select>
+                    </div>
+                </div>
+
+
                 <div class="flex space-x-2">
                     <button id="apply-filters-btn" class="bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition shadow-sm">Apply Filters</button>
                     <button id="clear-filters-btn" class="bg-gray-400 text-white p-2 rounded-md hover:bg-gray-500 transition shadow-sm">Clear Filters</button>

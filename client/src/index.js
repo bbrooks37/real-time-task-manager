@@ -1,9 +1,7 @@
-// project1/client/src/index.js
+// client/src/index.js
 
 // --- Global Variables ---
 // Dynamically determine API_BASE_URL using Webpack's process.env
-// In local development, this will be your .env.development value (localhost:5000)
-// In production, this will be your .env.production value (your Heroku backend URL)
 const API_BASE_URL = process.env.API_BASE_URL; 
 
 let socket; 
@@ -44,6 +42,7 @@ let tagsSection, createTagForm, tagNameInput, tagsList, noTagsMessage;
 // NEW: Task Filter DOM elements
 let taskFilterSearchInput, taskFilterPrioritySelect, taskFilterStatusSelect,
     taskFilterAssignedToSelect, taskFilterTagsSelect, applyFiltersBtn, clearFiltersBtn;
+let taskFilterDueDateStart, taskFilterDueDateEnd, taskFilterOrderBy, taskFilterOrderDirection;
 
 
 // --- Utility Functions ---
@@ -63,14 +62,27 @@ function showMessage(message, type = 'success') {
     }, 3000); 
 }
 
-function showAuthMessage(message, type = 'error') {
+// Updated showAuthMessage to handle validation errors from backend
+function showAuthMessage(errorData, type = 'error') {
     if (!authMessageDiv) { 
-        console.log("Auth Message (authMessageDiv not ready):", message);
+        console.log("Auth Message (authMessageDiv not ready):", errorData);
         return;
     }
-    authMessageDiv.textContent = message;
+    let messageToDisplay = '';
+    if (errorData.errors && Array.isArray(errorData.errors)) {
+        // Display validation errors specifically
+        messageToDisplay = errorData.errors.map(err => err.msg).join('; ');
+    } else if (errorData.message) {
+        // Display general error message
+        messageToDisplay = errorData.message;
+    } else {
+        messageToDisplay = 'An unknown error occurred during authentication.';
+    }
+
+    authMessageDiv.textContent = messageToDisplay;
     authMessageDiv.className = `mt-4 text-center ${type === 'error' ? 'text-red-600' : 'text-green-600'}`;
 }
+
 
 function clearAuthMessages() {
     if (authMessageDiv) { 
@@ -107,15 +119,21 @@ async function fetchData(endpoint, method = 'GET', body = null) {
 
     try {
         const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
-        const data = await response.json();
+        const data = await response.json(); // Always try to parse JSON, even on error
 
         if (!response.ok) {
-            throw new Error(data.message || 'Something went wrong');
+            // Pass the entire error data, including 'errors' array if present
+            throw data; // Throw the parsed error object
         }
         return data;
     } catch (error) {
         console.error('API call error:', error);
-        throw error; 
+        // If it's a TypeError (e.g., Failed to fetch), or other network errors
+        // that don't return JSON, create a generic error object.
+        if (error instanceof TypeError) {
+            throw { message: 'Network error or server unreachable. Please try again.' };
+        }
+        throw error; // Re-throw the parsed error object or generic error
     }
 }
 
@@ -135,12 +153,8 @@ async function handleRegister(e) {
         registerEmail.value = '';
         registerPassword.value = '';
     } catch (error) {
-        if (error.errors && Array.isArray(error.errors)) {
-            const errorMessages = error.errors.map(err => err.msg).join('; ');
-            showAuthMessage(`Validation failed: ${errorMessages}`);
-        } else {
-            showAuthMessage(error.message);
-        }
+        // Pass the full error object to showAuthMessage
+        showAuthMessage(error); 
     }
 }
 
@@ -161,7 +175,8 @@ async function handleLogin(e) {
         loginEmail.value = ''; 
         loginPassword.value = '';
     } catch (error) {
-        showAuthMessage(error.message);
+        // Pass the full error object to showAuthMessage
+        showAuthMessage(error);
     }
 }
 
@@ -249,9 +264,15 @@ function renderProject(project) {
     });
     projectDiv.querySelector('.delete-project-btn').addEventListener('click', (e) => {
         const projectId = e.target.dataset.id;
-        // Use a custom modal instead of confirm for a better UX
-        if (confirm('Are you sure you want to delete this project? This will also delete all associated tasks.')) {
-            deleteProject(projectId);
+        // Conditional rendering/disabling based on user role (e.g., only admin or project creator can delete)
+        const projectCreatorId = project.created_by; // Assuming 'created_by' is returned in project object
+        if (currentUser.role === 'admin' || currentUser.user_id === projectCreatorId) {
+            // Use a custom modal instead of confirm for a better UX (implement later if desired)
+            if (confirm('Are you sure you want to delete this project? This will also delete all associated tasks.')) {
+                deleteProject(projectId);
+            }
+        } else {
+            showMessage('You do not have permission to delete this project.', 'error');
         }
     });
 }
@@ -423,8 +444,14 @@ function renderTag(tag) {
 
     tagDiv.querySelector('.delete-tag-btn').addEventListener('click', (e) => {
         const tagId = e.target.dataset.id;
-        if (confirm('Are you sure you want to delete this tag? This will also remove it from all tasks.')) {
-            deleteTag(tagId);
+        // Conditional disabling based on user role (e.g., only admin or tag creator can delete)
+        const tagCreatorId = tag.created_by; // Assuming 'created_by' is returned in tag object
+        if (currentUser.role === 'admin' || currentUser.user_id === tagCreatorId) {
+            if (confirm('Are you sure you want to delete this tag? This will also remove it from all tasks.')) {
+                deleteTag(tagId);
+            }
+        } else {
+            showMessage('You do not have permission to delete this tag.', 'error');
         }
     });
 }
@@ -525,6 +552,21 @@ async function fetchTasks(projectId = null, projectName = 'All Projects', filter
     if (filters.tags && filters.tags.length > 0) {
         queryParams.append('tags', filters.tags.join(',')); // Send as comma-separated string
     }
+    // NEW: Add due date range filters
+    if (filters.due_date_start) {
+        queryParams.append('due_date_start', filters.due_date_start);
+    }
+    if (filters.due_date_end) {
+        queryParams.append('due_date_end', filters.due_date_end);
+    }
+    // NEW: Add sorting parameters
+    if (filters.order_by) {
+        queryParams.append('order_by', filters.order_by);
+    }
+    if (filters.order_direction) {
+        queryParams.append('order_direction', filters.order_direction);
+    }
+
 
     const endpoint = `/tasks?${queryParams.toString()}`;
 
@@ -608,12 +650,25 @@ function renderTask(task) {
             parent_task_id: e.target.dataset.parentTaskId,
             tags: JSON.parse(e.target.dataset.tags || '[]') // Parse tags array
         };
-        showEditTaskModal(taskData); 
+        // Conditional disabling based on user role (e.g., only admin, creator, or assignee can edit)
+        const taskCreatorId = task.created_by; // Assuming 'created_by' is returned in task object
+        const taskAssignedToId = task.assigned_to; // Assuming 'assigned_to' is returned in task object
+        if (currentUser.role === 'admin' || currentUser.user_id === taskCreatorId || currentUser.user_id === taskAssignedToId) {
+            showEditTaskModal(taskData); 
+        } else {
+            showMessage('You do not have permission to edit this task.', 'error');
+        }
     });
     taskDiv.querySelector('.delete-task-btn').addEventListener('click', (e) => {
         const taskId = e.target.dataset.id;
-        if (confirm('Are you sure you want to delete this task?')) {
-            deleteTask(taskId);
+        // Conditional disabling based on user role (e.g., only admin or task creator can delete)
+        const taskCreatorId = task.created_by;
+        if (currentUser.role === 'admin' || currentUser.user_id === taskCreatorId) {
+            if (confirm('Are you sure you want to delete this task?')) {
+                deleteTask(taskId);
+            }
+        } else {
+            showMessage('You do not have permission to delete this task.', 'error');
         }
     });
 
@@ -622,14 +677,20 @@ function renderTask(task) {
         button.addEventListener('click', async (e) => {
             const taskId = e.target.dataset.taskId;
             const tagId = e.target.dataset.tagId;
-            if (confirm('Are you sure you want to remove this tag from the task?')) {
-                try {
-                    await fetchData(`/tasks/${taskId}/tags/${tagId}`, 'DELETE');
-                    showMessage('Tag removed from task!', 'success');
-                    fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); // Re-fetch tasks with current filters
-                } catch (error) {
-                    showMessage(`Error removing tag: ${error.message}`, 'error');
+            // Conditional disabling based on user role
+            const taskCreatorId = task.created_by;
+            if (currentUser.role === 'admin' || currentUser.user_id === taskCreatorId) {
+                if (confirm('Are you sure you want to remove this tag from the task?')) {
+                    try {
+                        await fetchData(`/tasks/${taskId}/tags/${tagId}`, 'DELETE');
+                        showMessage('Tag removed from task!', 'success');
+                        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); // Re-fetch tasks with current filters
+                    } catch (error) {
+                        showMessage(`Error removing tag: ${error.message}`, 'error');
+                    }
                 }
+            } else {
+                showMessage('You do not have permission to remove tags from this task.', 'error');
             }
         });
     });
@@ -748,7 +809,7 @@ async function handleCreateTask(e) {
     const project_id = taskProjectIdSelect.value;
     const parent_task_id = taskParentTaskIdInput.value || null;
     
-    // Get selected tags from the create task form
+    // Get selected tags from the multi-select
     const selectedTagIds = Array.from(taskTagsSelect.selectedOptions)
                                 .map(option => parseInt(option.value));
 
@@ -776,7 +837,9 @@ async function handleCreateTask(e) {
         // Ensure dropdowns are reset after creation
         Array.from(taskTagsSelect.options).forEach(option => option.selected = false);
         // Also ensure multi-selects are cleared.
-        Array.from(editTaskTagsSelect.options).forEach(option => option.selected = false); // Clear edit modal's tags too
+        if (editTaskTagsSelect) { // Check if editTaskTagsSelect is initialized
+            Array.from(editTaskTagsSelect.options).forEach(option => option.selected = false); 
+        }
         
         fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); // Re-fetch tasks with current filters
 
@@ -835,7 +898,13 @@ function getCurrentFilters() {
         priority: taskFilterPrioritySelect.value,
         status: taskFilterStatusSelect.value,
         assigned_to: taskFilterAssignedToSelect.value || null,
-        tags: Array.from(taskFilterTagsSelect.selectedOptions).map(option => parseInt(option.value))
+        tags: Array.from(taskFilterTagsSelect.selectedOptions).map(option => parseInt(option.value)),
+        // NEW: Add due date range filters
+        due_date_start: taskFilterDueDateStart.value || null,
+        due_date_end: taskFilterDueDateEnd.value || null,
+        // NEW: Add sorting parameters
+        order_by: taskFilterOrderBy.value,
+        order_direction: taskFilterOrderDirection.value
     };
 }
 
@@ -850,6 +919,13 @@ function clearFilters() {
     taskFilterStatusSelect.value = '';
     taskFilterAssignedToSelect.value = '';
     Array.from(taskFilterTagsSelect.options).forEach(option => option.selected = false);
+    // NEW: Clear due date range filters
+    taskFilterDueDateStart.value = '';
+    taskFilterDueDateEnd.value = '';
+    // NEW: Reset sorting to default
+    taskFilterOrderBy.value = 'created_at';
+    taskFilterOrderDirection.value = 'DESC';
+
     // After clearing filters, re-fetch tasks (possibly for the current project)
     fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent);
 }
@@ -1017,6 +1093,10 @@ document.addEventListener('DOMContentLoaded', () => {
     taskFilterTagsSelect = document.getElementById('task-filter-tags');
     applyFiltersBtn = document.getElementById('apply-filters-btn');
     clearFiltersBtn = document.getElementById('clear-filters-btn');
+    taskFilterDueDateStart = document.getElementById('task-filter-due-date-start');
+    taskFilterDueDateEnd = document.getElementById('task-filter-due-date-end');
+    taskFilterOrderBy = document.getElementById('task-filter-order-by');
+    taskFilterOrderDirection = document.getElementById('task-filter-order-direction');
 
 
     // Attach Event Listeners
@@ -1053,7 +1133,7 @@ document.addEventListener('DOMContentLoaded', () => {
         createTagForm.addEventListener('submit', handleCreateTag);
     }
 
-    // NEW: Event listeners for filter controls
+    // NEW: Event listeners for filter controls - Trigger applyFilters on input/change
     if (applyFiltersBtn) {
         applyFiltersBtn.addEventListener('click', applyFilters);
     }
@@ -1061,12 +1141,15 @@ document.addEventListener('DOMContentLoaded', () => {
         clearFiltersBtn.addEventListener('click', clearFilters);
     }
 
-    // Add event listeners to trigger filter when filter inputs change
     if (taskFilterSearchInput) taskFilterSearchInput.addEventListener('input', applyFilters);
     if (taskFilterPrioritySelect) taskFilterPrioritySelect.addEventListener('change', applyFilters);
     if (taskFilterStatusSelect) taskFilterStatusSelect.addEventListener('change', applyFilters);
     if (taskFilterAssignedToSelect) taskFilterAssignedToSelect.addEventListener('change', applyFilters);
     if (taskFilterTagsSelect) taskFilterTagsSelect.addEventListener('change', applyFilters);
+    if (taskFilterDueDateStart) taskFilterDueDateStart.addEventListener('change', applyFilters);
+    if (taskFilterDueDateEnd) taskFilterDueDateEnd.addEventListener('change', applyFilters);
+    if (taskFilterOrderBy) taskFilterOrderBy.addEventListener('change', applyFilters);
+    if (taskFilterOrderDirection) taskFilterOrderDirection.addEventListener('change', applyFilters);
 
 
     // Check for existing token/user in localStorage on page load
