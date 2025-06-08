@@ -8,6 +8,7 @@ let socket;
 let currentUser = null; 
 let currentToken = null; 
 let allTags = []; // Store all available tags
+let currentProjectIdFilter = null; // To keep track of the currently selected project for filtering
 
 // --- DOM Elements (will be assigned inside DOMContentLoaded) ---
 let authSection, mainAppSection, welcomeUsername, logoutBtn;
@@ -29,7 +30,7 @@ let editTaskTitle, editTaskDescription, editTaskDueDate, editTaskPrioritySelect,
     editTaskStatusSelect, editTaskAssignedToSelect, editTaskProjectIdSelect, editTaskParentTaskIdInput;
 let editTaskTagsSelect; // Multi-select for tags in edit task modal
 let taskTagsSelect; // Multi-select for tags in create task form
-let editTaskOriginalTagsInput; // NEW: Hidden input to store original tags for comparison
+let editTaskOriginalTagsInput; // Hidden input to store original tags for comparison
 
 // Edit Project Modal related DOM elements
 let editProjectModal, editProjectForm, cancelEditProjectBtn;
@@ -37,6 +38,10 @@ let editProjectId, editProjectName, editProjectDescription;
 
 // Tag Management DOM elements
 let tagsSection, createTagForm, tagNameInput, tagsList, noTagsMessage;
+
+// NEW: Task Filter DOM elements
+let taskFilterSearchInput, taskFilterPrioritySelect, taskFilterStatusSelect,
+    taskFilterAssignedToSelect, taskFilterTagsSelect, applyFiltersBtn, clearFiltersBtn;
 
 
 // --- Utility Functions ---
@@ -179,7 +184,7 @@ function renderApp() {
         fetchProjects(); 
         fetchUsersForAssignment(); 
         fetchTags(); // Fetch all tags on app load
-        fetchTasks(); 
+        fetchTasks(); // Initial fetch of tasks with no filters
     } else {
         if (authSection && mainAppSection) {
             authSection.classList.remove('hidden');
@@ -230,6 +235,7 @@ function renderProject(project) {
     projectsList.appendChild(projectDiv);
 
     projectDiv.querySelector('.view-tasks-btn').addEventListener('click', (e) => {
+        currentProjectIdFilter = project.id; // Set filter for tasks
         fetchTasks(project.id, project.name);
     });
     // Attach event listener for the new edit project modal
@@ -356,15 +362,18 @@ async function fetchUsersForAssignment() {
     try {
         const data = await fetchData('/users'); 
         allUsers = data.users; 
-        if (taskAssignedToSelect && editTaskAssignedToSelect) { // Also populate edit modal's dropdown
+        if (taskAssignedToSelect && editTaskAssignedToSelect && taskFilterAssignedToSelect) { // Also populate edit modal's dropdown and filter dropdown
             taskAssignedToSelect.innerHTML = '<option value="">Assign to...</option>'; 
             editTaskAssignedToSelect.innerHTML = '<option value="">Assign to...</option>'; // For edit task modal
+            taskFilterAssignedToSelect.innerHTML = '<option value="">All Assignees</option>'; // For task filter
+
             allUsers.forEach(user => {
                 const option = document.createElement('option');
                 option.value = user.id; 
                 option.textContent = user.username; 
                 taskAssignedToSelect.appendChild(option);
                 editTaskAssignedToSelect.appendChild(option.cloneNode(true)); // Clone for the edit modal
+                taskFilterAssignedToSelect.appendChild(option.cloneNode(true)); // Clone for the filter dropdown
             });
         }
     } catch (error) {
@@ -390,6 +399,7 @@ async function fetchTags() {
         }
         populateTaskTagsDropdown(allTags); // Populate tags in the create task form
         populateEditTaskTagDropdown(allTags); // Populate tags in the edit task modal
+        populateTaskFilterTagDropdown(allTags); // NEW: Populate tags in the filter dropdown
     } catch (error) {
         console.warn('Could not fetch tags. Error:', error.message);
         showMessage(`Could not load tags: ${error.message}`, 'error');
@@ -473,14 +483,49 @@ function populateEditTaskTagDropdown(tags) {
     });
 }
 
+// NEW: Populate multi-select tag dropdown for task filter section
+function populateTaskFilterTagDropdown(tags) {
+    if (!taskFilterTagsSelect) return;
+    taskFilterTagsSelect.innerHTML = ''; // Clear previous options
+    tags.forEach(tag => {
+        const option = document.createElement('option');
+        option.value = tag.id;
+        option.textContent = tag.name;
+        taskFilterTagsSelect.appendChild(option);
+    });
+}
+
 
 // --- Task Functions ---
 
-async function fetchTasks(projectId = null, projectName = 'All Projects') {
+async function fetchTasks(projectId = null, projectName = 'All Projects', filters = {}) {
     if (currentProjectNameSpan) {
         currentProjectNameSpan.textContent = projectName;
     }
-    const endpoint = projectId ? `/tasks?project_id=${projectId}` : '/tasks';
+    
+    // Construct query parameters for filters
+    const queryParams = new URLSearchParams();
+    if (projectId) {
+        queryParams.append('project_id', projectId);
+    }
+    if (filters.search) {
+        queryParams.append('search', filters.search);
+    }
+    if (filters.priority) {
+        queryParams.append('priority', filters.priority);
+    }
+    if (filters.status) {
+        queryParams.append('status', filters.status);
+    }
+    if (filters.assigned_to) {
+        queryParams.append('assigned_to', filters.assigned_to);
+    }
+    if (filters.tags && filters.tags.length > 0) {
+        queryParams.append('tags', filters.tags.join(',')); // Send as comma-separated string
+    }
+
+    const endpoint = `/tasks?${queryParams.toString()}`;
+
     try {
         const data = await fetchData(endpoint);
         if (tasksList) { 
@@ -579,7 +624,7 @@ function renderTask(task) {
                 try {
                     await fetchData(`/tasks/${taskId}/tags/${tagId}`, 'DELETE');
                     showMessage('Tag removed from task!', 'success');
-                    fetchTasks(); // Re-fetch tasks to update display
+                    fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); // Re-fetch tasks with current filters
                 } catch (error) {
                     showMessage(`Error removing tag: ${error.message}`, 'error');
                 }
@@ -594,7 +639,7 @@ function showEditTaskModal(task) {
 
     editTaskId.value = task.id;
     editTaskOriginalProjectId.value = task.project_id; 
-    editTaskOriginalTagsInput.value = JSON.stringify(task.tags || []); // NEW: Store original tags as JSON string
+    editTaskOriginalTagsInput.value = JSON.stringify(task.tags || []); // Store original tags as JSON string
 
     editTaskTitle.value = task.title;
     editTaskDescription.value = task.description;
@@ -680,7 +725,8 @@ async function handleEditTaskSubmit(e) {
             await fetchData(`/tasks/${taskId}/tags/${tagId}`, 'POST');
         }
         
-        fetchTasks(); // Re-fetch tasks to reflect all changes
+        // Re-fetch tasks with current filters after all updates
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); 
 
     } catch (error) {
         showMessage(`Error updating task: ${error.message}`, 'error');
@@ -729,6 +775,9 @@ async function handleCreateTask(e) {
         Array.from(taskTagsSelect.options).forEach(option => option.selected = false);
         // Also ensure multi-selects are cleared.
         Array.from(editTaskTagsSelect.options).forEach(option => option.selected = false); // Clear edit modal's tags too
+        
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); // Re-fetch tasks with current filters
+
 
     }
     catch (error) {
@@ -777,6 +826,33 @@ function getStatusColor(status) {
     }
 }
 
+// NEW: Filter Functions
+function getCurrentFilters() {
+    return {
+        search: taskFilterSearchInput.value.trim(),
+        priority: taskFilterPrioritySelect.value,
+        status: taskFilterStatusSelect.value,
+        assigned_to: taskFilterAssignedToSelect.value || null,
+        tags: Array.from(taskFilterTagsSelect.selectedOptions).map(option => parseInt(option.value))
+    };
+}
+
+function applyFilters() {
+    const filters = getCurrentFilters();
+    fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, filters);
+}
+
+function clearFilters() {
+    taskFilterSearchInput.value = '';
+    taskFilterPrioritySelect.value = '';
+    taskFilterStatusSelect.value = '';
+    taskFilterAssignedToSelect.value = '';
+    Array.from(taskFilterTagsSelect.options).forEach(option => option.selected = false);
+    // After clearing filters, re-fetch tasks (possibly for the current project)
+    fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent);
+}
+
+
 // --- Socket.IO Client Initialization ---
 function initializeSocketIO() {
     if (socket && socket.connected) {
@@ -806,28 +882,28 @@ function initializeSocketIO() {
 
     socket.on('taskCreated', (data) => {
         showMessage(`New Task: "${data.task.title}" created!`, 'success');
-        fetchTasks(); 
-        fetchProjects(); 
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); 
+        fetchProjects(); // Projects might need re-fetch if task count affects their display
     });
 
     socket.on('taskUpdated', (data) => {
         showMessage(`Task: "${data.task.title}" updated!`, 'success');
-        fetchTasks();
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters());
     });
 
     socket.on('taskDeleted', (data) => {
         showMessage(`Task deleted!`, 'success');
-        fetchTasks();
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters());
     });
 
     socket.on('taskTagAdded', (data) => {
         showMessage(`Tag added to task!`, 'success');
-        fetchTasks(); 
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); 
     });
 
     socket.on('taskTagRemoved', (data) => {
         showMessage(`Tag removed from task!`, 'success');
-        fetchTasks(); 
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); 
     });
 
     socket.on('projectCreated', (data) => {
@@ -843,7 +919,7 @@ function initializeSocketIO() {
     socket.on('projectDeleted', (data) => {
         showMessage(`Project deleted!`, 'success');
         fetchProjects(); 
-        fetchTasks(); 
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); 
     });
 
     socket.on('test_response', (data) => {
@@ -914,7 +990,7 @@ document.addEventListener('DOMContentLoaded', () => {
     editTaskProjectIdSelect = document.getElementById('edit-task-project-id');
     editTaskParentTaskIdInput = document.getElementById('edit-task-parent-task-id');
     editTaskTagsSelect = document.getElementById('edit-task-tags'); // Assign tags multi-select for edit task form
-    editTaskOriginalTagsInput = document.getElementById('edit-task-original-tags'); // NEW: Assign hidden input
+    editTaskOriginalTagsInput = document.getElementById('edit-task-original-tags'); // Assign hidden input
 
     // Edit Project Modal Elements
     editProjectModal = document.getElementById('edit-project-modal');
@@ -930,6 +1006,15 @@ document.addEventListener('DOMContentLoaded', () => {
     tagNameInput = document.getElementById('tag-name');
     tagsList = document.getElementById('tags-list');
     noTagsMessage = document.getElementById('no-tags-message');
+
+    // NEW: Filter Elements
+    taskFilterSearchInput = document.getElementById('task-filter-search');
+    taskFilterPrioritySelect = document.getElementById('task-filter-priority');
+    taskFilterStatusSelect = document.getElementById('task-filter-status');
+    taskFilterAssignedToSelect = document.getElementById('task-filter-assigned-to');
+    taskFilterTagsSelect = document.getElementById('task-filter-tags');
+    applyFiltersBtn = document.getElementById('apply-filters-btn');
+    clearFiltersBtn = document.getElementById('clear-filters-btn');
 
 
     // Attach Event Listeners
@@ -965,6 +1050,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (createTagForm) { 
         createTagForm.addEventListener('submit', handleCreateTag);
     }
+
+    // NEW: Event listeners for filter controls
+    if (applyFiltersBtn) {
+        applyFiltersBtn.addEventListener('click', applyFilters);
+    }
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', clearFilters);
+    }
+
+    // Add event listeners to trigger filter when filter inputs change
+    if (taskFilterSearchInput) taskFilterSearchInput.addEventListener('input', applyFilters);
+    if (taskFilterPrioritySelect) taskFilterPrioritySelect.addEventListener('change', applyFilters);
+    if (taskFilterStatusSelect) taskFilterStatusSelect.addEventListener('change', applyFilters);
+    if (taskFilterAssignedToSelect) taskFilterAssignedToSelect.addEventListener('change', applyFilters);
+    if (taskFilterTagsSelect) taskFilterTagsSelect.addEventListener('change', applyFilters);
 
 
     // Check for existing token/user in localStorage on page load
