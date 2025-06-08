@@ -18,6 +18,8 @@ let tasksSection, currentProjectNameSpan, createTaskForm, taskTitleInput, taskDe
     taskDueDateInput, taskPrioritySelect, taskStatusSelect, taskAssignedToSelect,
     taskProjectIdSelect, taskParentTaskIdInput, tasksList, noTasksMessage;
 let globalMessageDiv;
+// NEW: Notification related DOM elements
+let notificationsContainer, notificationsList, notificationsBadge, clearNotificationsBtn;
 
 // Input fields for auth forms
 let registerUsername, registerEmail, registerPassword; 
@@ -39,7 +41,7 @@ let editProjectId, editProjectName, editProjectDescription;
 // Tag Management DOM elements
 let tagsSection, createTagForm, tagNameInput, tagsList, noTagsMessage;
 
-// NEW: Task Filter DOM elements
+// Task Filter DOM elements
 let taskFilterSearchInput, taskFilterPrioritySelect, taskFilterStatusSelect,
     taskFilterAssignedToSelect, taskFilterTagsSelect, applyFiltersBtn, clearFiltersBtn;
 let taskFilterDueDateStart, taskFilterDueDateEnd, taskFilterOrderBy, taskFilterOrderDirection;
@@ -202,6 +204,7 @@ function renderApp() {
         fetchUsersForAssignment(); 
         fetchTags(); // Fetch all tags on app load
         fetchTasks(); // Initial fetch of tasks with no filters
+        fetchNotifications(); // NEW: Fetch notifications on app load
     } else {
         if (authSection && mainAppSection) {
             authSection.classList.remove('hidden');
@@ -237,10 +240,14 @@ function renderProject(project) {
     if (!projectsList) return; 
     const projectDiv = document.createElement('div');
     projectDiv.id = `project-${project.id}`;
-    projectDiv.className = 'bg-white p-4 rounded-md shadow-sm flex justify-between items-center border-l-4 border-purple-500';
+    // Show a visual cue if project is soft-deleted (for admin view)
+    const borderColor = project.is_deleted ? 'border-red-700' : 'border-purple-500';
+    const bgColor = project.is_deleted ? 'bg-red-100' : 'bg-white';
+
+    projectDiv.className = `${bgColor} p-4 rounded-md shadow-sm flex justify-between items-center border-l-4 ${borderColor}`;
     projectDiv.innerHTML = `
         <div>
-            <h4 class="text-lg font-semibold text-gray-800">${project.name}</h4>
+            <h4 class="text-lg font-semibold text-gray-800">${project.name} ${project.is_deleted ? '(Deleted)' : ''}</h4>
             <p class="text-sm text-gray-600">${project.description || 'No description'}</p>
         </div>
         <div class="flex space-x-2">
@@ -256,25 +263,36 @@ function renderProject(project) {
         fetchTasks(project.id, project.name);
     });
     // Attach event listener for the new edit project modal
-    projectDiv.querySelector('.edit-project-btn').addEventListener('click', (e) => {
+    const editBtn = projectDiv.querySelector('.edit-project-btn');
+    editBtn.addEventListener('click', (e) => {
         const projectId = e.target.dataset.id;
         const projectName = e.target.dataset.name;
         const projectDescription = e.target.dataset.description;
         showEditProjectModal({ id: projectId, name: projectName, description: projectDescription });
     });
-    projectDiv.querySelector('.delete-project-btn').addEventListener('click', (e) => {
+
+    const deleteBtn = projectDiv.querySelector('.delete-project-btn');
+    deleteBtn.addEventListener('click', (e) => {
         const projectId = e.target.dataset.id;
         // Conditional rendering/disabling based on user role (e.g., only admin or project creator can delete)
         const projectCreatorId = project.created_by; // Assuming 'created_by' is returned in project object
         if (currentUser.role === 'admin' || currentUser.user_id === projectCreatorId) {
-            // Use a custom modal instead of confirm for a better UX (implement later if desired)
-            if (confirm('Are you sure you want to delete this project? This will also delete all associated tasks.')) {
+            if (confirm(`Are you sure you want to delete project "${project.name}"? This will also soft-delete all associated tasks.`)) {
                 deleteProject(projectId);
             }
         } else {
             showMessage('You do not have permission to delete this project.', 'error');
+            deleteBtn.disabled = true; // Disable button if not authorized
+            deleteBtn.classList.add('opacity-50', 'cursor-not-allowed');
         }
     });
+    // Disable edit/delete buttons if project is soft-deleted or user has no permission
+    if (project.is_deleted || (currentUser.role !== 'admin' && currentUser.user_id !== project.created_by)) {
+        editBtn.disabled = true;
+        editBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        deleteBtn.disabled = true;
+        deleteBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
 }
 
 // Function to show and populate the edit project modal
@@ -352,7 +370,9 @@ async function deleteProject(id) {
 function populateProjectDropdowns(projects) {
     if (!taskProjectIdSelect) return; 
     taskProjectIdSelect.innerHTML = '<option value="">Select Project...</option>';
-    projects.forEach(project => {
+    // Filter out soft-deleted projects from dropdowns
+    const activeProjects = projects.filter(p => !p.is_deleted);
+    activeProjects.forEach(project => {
         const option = document.createElement('option');
         option.value = project.id;
         option.textContent = project.name;
@@ -370,7 +390,9 @@ function populateEditTaskProjectDropdown(projects) {
     defaultOption.textContent = 'Select Project...';
     editTaskProjectIdSelect.appendChild(defaultOption);
 
-    projects.forEach(project => {
+    // Filter out soft-deleted projects from dropdowns
+    const activeProjects = projects.filter(p => !p.is_deleted);
+    activeProjects.forEach(project => {
         const option = document.createElement('option');
         option.value = project.id;
         option.textContent = project.name;
@@ -413,11 +435,13 @@ async function fetchTags() {
         allTags = data.tags; // Store fetched tags globally
         if (tagsList) { // If tagsList element exists
             tagsList.innerHTML = ''; // Clear previous tags
-            if (allTags.length === 0) {
+            // Filter out soft-deleted tags from display list
+            const activeTags = allTags.filter(t => !t.is_deleted);
+            if (activeTags.length === 0) {
                 noTagsMessage.classList.remove('hidden');
             } else {
                 noTagsMessage.classList.add('hidden');
-                allTags.forEach(tag => renderTag(tag));
+                activeTags.forEach(tag => renderTag(tag));
             }
         }
         populateTaskTagsDropdown(allTags); // Populate tags in the create task form
@@ -433,27 +457,39 @@ function renderTag(tag) {
     if (!tagsList) return;
     const tagDiv = document.createElement('div');
     tagDiv.id = `tag-${tag.id}`;
-    tagDiv.className = 'bg-gray-200 rounded-full px-4 py-2 text-sm font-semibold text-gray-700 flex items-center justify-between shadow-sm';
+    // Show a visual cue if tag is soft-deleted (for admin view)
+    const bgColor = tag.is_deleted ? 'bg-gray-300' : 'bg-gray-200';
+    const textColor = tag.is_deleted ? 'text-gray-500' : 'text-gray-700';
+
+    tagDiv.className = `${bgColor} rounded-full px-4 py-2 text-sm font-semibold ${textColor} flex items-center justify-between shadow-sm`;
     tagDiv.innerHTML = `
-        <span>${tag.name}</span>
+        <span>${tag.name} ${tag.is_deleted ? '(Deleted)' : ''}</span>
         <button data-id="${tag.id}" class="delete-tag-btn ml-2 text-red-500 hover:text-red-700 transition">
             &times;
         </button>
     `;
     tagsList.appendChild(tagDiv);
 
-    tagDiv.querySelector('.delete-tag-btn').addEventListener('click', (e) => {
+    const deleteBtn = tagDiv.querySelector('.delete-tag-btn');
+    deleteBtn.addEventListener('click', (e) => {
         const tagId = e.target.dataset.id;
         // Conditional disabling based on user role (e.g., only admin or tag creator can delete)
         const tagCreatorId = tag.created_by; // Assuming 'created_by' is returned in tag object
         if (currentUser.role === 'admin' || currentUser.user_id === tagCreatorId) {
-            if (confirm('Are you sure you want to delete this tag? This will also remove it from all tasks.')) {
+            if (confirm(`Are you sure you want to delete tag "${tag.name}"? This will soft-delete it.`)) {
                 deleteTag(tagId);
             }
         } else {
             showMessage('You do not have permission to delete this tag.', 'error');
+            deleteBtn.disabled = true;
+            deleteBtn.classList.add('opacity-50', 'cursor-not-allowed');
         }
     });
+    // Disable delete button if tag is soft-deleted or user has no permission
+    if (tag.is_deleted || (currentUser.role !== 'admin' && currentUser.user_id !== tag.created_by)) {
+        deleteBtn.disabled = true;
+        deleteBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
 }
 
 async function handleCreateTag(e) {
@@ -491,7 +527,9 @@ async function deleteTag(id) {
 function populateTaskTagsDropdown(tags) {
     if (!taskTagsSelect) return;
     taskTagsSelect.innerHTML = ''; // Clear previous options
-    tags.forEach(tag => {
+    // Filter out soft-deleted tags from dropdowns
+    const activeTags = tags.filter(t => !t.is_deleted);
+    activeTags.forEach(tag => {
         const option = document.createElement('option');
         option.value = tag.id;
         option.textContent = tag.name;
@@ -504,7 +542,9 @@ function populateTaskTagsDropdown(tags) {
 function populateEditTaskTagDropdown(tags) {
     if (!editTaskTagsSelect) return;
     editTaskTagsSelect.innerHTML = ''; // Clear previous options
-    tags.forEach(tag => {
+    // Filter out soft-deleted tags from dropdowns
+    const activeTags = tags.filter(t => !t.is_deleted);
+    activeTags.forEach(tag => {
         const option = document.createElement('option');
         option.value = tag.id;
         option.textContent = tag.name;
@@ -512,11 +552,13 @@ function populateEditTaskTagDropdown(tags) {
     });
 }
 
-// NEW: Populate multi-select tag dropdown for task filter section
+// Populate multi-select tag dropdown for task filter section
 function populateTaskFilterTagDropdown(tags) {
     if (!taskFilterTagsSelect) return;
     taskFilterTagsSelect.innerHTML = ''; // Clear previous options
-    tags.forEach(tag => {
+    // Filter out soft-deleted tags from dropdowns
+    const activeTags = tags.filter(t => !t.is_deleted);
+    activeTags.forEach(tag => {
         const option = document.createElement('option');
         option.value = tag.id;
         option.textContent = tag.name;
@@ -552,14 +594,14 @@ async function fetchTasks(projectId = null, projectName = 'All Projects', filter
     if (filters.tags && filters.tags.length > 0) {
         queryParams.append('tags', filters.tags.join(',')); // Send as comma-separated string
     }
-    // NEW: Add due date range filters
+    // Add due date range filters
     if (filters.due_date_start) {
         queryParams.append('due_date_start', filters.due_date_start);
     }
     if (filters.due_date_end) {
         queryParams.append('due_date_end', filters.due_date_end);
     }
-    // NEW: Add sorting parameters
+    // Add sorting parameters
     if (filters.order_by) {
         queryParams.append('order_by', filters.order_by);
     }
@@ -594,7 +636,11 @@ function renderTask(task) {
     if (!tasksList) return; 
     const taskDiv = document.createElement('div');
     taskDiv.id = `task-${task.id}`;
-    taskDiv.className = 'bg-white p-4 rounded-md shadow-sm flex justify-between items-start border-l-4 border-yellow-500';
+    // Show a visual cue if task is soft-deleted (for admin view)
+    const borderColor = task.is_deleted ? 'border-red-700' : 'border-yellow-500';
+    const bgColor = task.is_deleted ? 'bg-red-100' : 'bg-white';
+
+    taskDiv.className = `${bgColor} p-4 rounded-md shadow-sm flex justify-between items-start border-l-4 ${borderColor}`;
 
     // RENDER TAGS: Ensure tags are displayed with remove buttons
     const tagsHtml = task.tags ? task.tags.map(tag => `
@@ -606,7 +652,7 @@ function renderTask(task) {
 
     taskDiv.innerHTML = `
         <div class="flex-grow">
-            <h4 class="text-lg font-semibold text-gray-800">${task.title}</h4>
+            <h4 class="text-lg font-semibold text-gray-800">${task.title} ${task.is_deleted ? '(Deleted)' : ''}</h4>
             <p class="text-sm text-gray-600 mb-2">${task.description || 'No description'}</p>
             <p class="text-xs text-gray-500 mb-2">
                 Due: ${task.due_date ? new Date(task.due_date).toLocaleDateString() : 'N/A'} |
@@ -636,7 +682,8 @@ function renderTask(task) {
     tasksList.appendChild(taskDiv);
 
     // Attach event listeners for edit task modal
-    taskDiv.querySelector('.edit-task-btn').addEventListener('click', (e) => {
+    const editBtn = taskDiv.querySelector('.edit-task-btn');
+    editBtn.addEventListener('click', (e) => {
         const taskId = e.target.dataset.id;
         const taskData = {
             id: taskId,
@@ -645,36 +692,43 @@ function renderTask(task) {
             due_date: e.target.dataset.dueDate, 
             priority: e.target.dataset.priority,
             status: e.target.dataset.status,
-            assigned_to: e.target.dataset.assignedTo,
-            project_id: e.target.dataset.projectId,
-            parent_task_id: e.target.dataset.parentTaskId,
+            assigned_to: task.assigned_to || '', // Use task.assigned_to directly
+            project_id: task.project_id, // Use task.project_id directly
+            parent_task_id: task.parent_task_id || '',
             tags: JSON.parse(e.target.dataset.tags || '[]') // Parse tags array
         };
         // Conditional disabling based on user role (e.g., only admin, creator, or assignee can edit)
-        const taskCreatorId = task.created_by; // Assuming 'created_by' is returned in task object
-        const taskAssignedToId = task.assigned_to; // Assuming 'assigned_to' is returned in task object
+        const taskCreatorId = task.created_by;
+        const taskAssignedToId = task.assigned_to;
         if (currentUser.role === 'admin' || currentUser.user_id === taskCreatorId || currentUser.user_id === taskAssignedToId) {
             showEditTaskModal(taskData); 
         } else {
             showMessage('You do not have permission to edit this task.', 'error');
+            editBtn.disabled = true; // Disable button if not authorized
+            editBtn.classList.add('opacity-50', 'cursor-not-allowed');
         }
     });
-    taskDiv.querySelector('.delete-task-btn').addEventListener('click', (e) => {
+
+    const deleteBtn = taskDiv.querySelector('.delete-task-btn');
+    deleteBtn.addEventListener('click', (e) => {
         const taskId = e.target.dataset.id;
         // Conditional disabling based on user role (e.g., only admin or task creator can delete)
         const taskCreatorId = task.created_by;
         if (currentUser.role === 'admin' || currentUser.user_id === taskCreatorId) {
-            if (confirm('Are you sure you want to delete this task?')) {
+            if (confirm(`Are you sure you want to delete task "${task.title}"? This will soft-delete it.`)) {
                 deleteTask(taskId);
             }
         } else {
             showMessage('You do not have permission to delete this task.', 'error');
+            deleteBtn.disabled = true; // Disable button if not authorized
+            deleteBtn.classList.add('opacity-50', 'cursor-not-allowed');
         }
     });
 
     // Event listeners for removing tags from tasks
     taskDiv.querySelectorAll('.remove-tag-btn').forEach(button => {
-        button.addEventListener('click', async (e) => {
+        const removeTagBtn = button; // Renamed for clarity
+        removeTagBtn.addEventListener('click', async (e) => {
             const taskId = e.target.dataset.taskId;
             const tagId = e.target.dataset.tagId;
             // Conditional disabling based on user role
@@ -691,9 +745,24 @@ function renderTask(task) {
                 }
             } else {
                 showMessage('You do not have permission to remove tags from this task.', 'error');
+                removeTagBtn.disabled = true; // Disable button if not authorized
+                removeTagBtn.classList.add('opacity-50', 'cursor-not-allowed');
             }
         });
+        // Disable button if task is soft-deleted or user has no permission
+        if (task.is_deleted || (currentUser.role !== 'admin' && currentUser.user_id !== task.created_by)) {
+            removeTagBtn.disabled = true;
+            removeTagBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        }
     });
+
+    // Disable edit/delete buttons if task is soft-deleted
+    if (task.is_deleted) {
+        editBtn.disabled = true;
+        editBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        deleteBtn.disabled = true;
+        deleteBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
 }
 
 // Function to show and populate the edit task modal
@@ -891,7 +960,7 @@ function getStatusColor(status) {
     }
 }
 
-// NEW: Filter Functions
+// Filter Functions
 function getCurrentFilters() {
     return {
         search: taskFilterSearchInput.value.trim(),
@@ -899,10 +968,10 @@ function getCurrentFilters() {
         status: taskFilterStatusSelect.value,
         assigned_to: taskFilterAssignedToSelect.value || null,
         tags: Array.from(taskFilterTagsSelect.selectedOptions).map(option => parseInt(option.value)),
-        // NEW: Add due date range filters
+        // Add due date range filters
         due_date_start: taskFilterDueDateStart.value || null,
         due_date_end: taskFilterDueDateEnd.value || null,
-        // NEW: Add sorting parameters
+        // Add sorting parameters
         order_by: taskFilterOrderBy.value,
         order_direction: taskFilterOrderDirection.value
     };
@@ -919,10 +988,10 @@ function clearFilters() {
     taskFilterStatusSelect.value = '';
     taskFilterAssignedToSelect.value = '';
     Array.from(taskFilterTagsSelect.options).forEach(option => option.selected = false);
-    // NEW: Clear due date range filters
+    // Clear due date range filters
     taskFilterDueDateStart.value = '';
     taskFilterDueDateEnd.value = '';
-    // NEW: Reset sorting to default
+    // Reset sorting to default
     taskFilterOrderBy.value = 'created_at';
     taskFilterOrderDirection.value = 'DESC';
 
@@ -931,81 +1000,110 @@ function clearFilters() {
 }
 
 
-// --- Socket.IO Client Initialization ---
-function initializeSocketIO() {
-    if (socket && socket.connected) {
-        console.log('Socket.IO already connected.');
+// --- Notifications Functions (NEW) ---
+
+async function fetchNotifications() {
+    try {
+        const data = await fetchData('/notifications');
+        renderNotifications(data.notifications);
+        updateNotificationsBadge(data.notifications.filter(n => !n.is_read).length);
+    } catch (error) {
+        showMessage(`Error fetching notifications: ${error.message}`, 'error');
+    }
+}
+
+function renderNotifications(notifications) {
+    if (!notificationsList) return;
+    notificationsList.innerHTML = ''; // Clear existing notifications
+
+    if (notifications.length === 0) {
+        notificationsList.innerHTML = '<li class="text-center text-gray-500">No notifications.</li>';
         return;
     }
 
-    socket = io(API_BASE_URL.replace('/api', ''), {
+    notifications.forEach(notification => {
+        const listItem = document.createElement('li');
+        listItem.className = `p-3 mb-2 rounded-md shadow-sm ${notification.is_read ? 'bg-gray-100 text-gray-700' : 'bg-blue-50 text-blue-800 font-semibold'}`;
+        listItem.dataset.notificationId = notification.id; // Store ID for marking as read
+
+        let entityLink = '';
+        if (notification.entity_type === 'TASK' && notification.entity_id) {
+            entityLink = ` (<a href="#" data-task-id="${notification.entity_id}" class="notification-task-link text-blue-600 hover:underline">View Task</a>)`;
+        } else if (notification.entity_type === 'PROJECT' && notification.entity_id) {
+            entityLink = ` (<a href="#" data-project-id="${notification.entity_id}" class="notification-project-link text-blue-600 hover:underline">View Project</a>)`;
+        }
+
+        listItem.innerHTML = `
+            ${notification.message} ${entityLink}
+            <span class="block text-xs text-right ${notification.is_read ? 'text-gray-500' : 'text-blue-600'}">
+                ${new Date(notification.created_at).toLocaleString()}
+            </span>
+        `;
+        notificationsList.appendChild(listItem);
     });
 
-    socket.on('connect', () => {
-        console.log(`Socket.IO: Connected to server with ID: ${socket.id}`);
-        showMessage('Real-time connection established!', 'success');
+    // Add event listeners for notification links (e.g., jump to task)
+    notificationsList.querySelectorAll('.notification-task-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const taskId = e.target.dataset.taskId;
+            // You would ideally scroll to the task or open its edit modal here
+            // For now, we'll just log and maybe highlight:
+            showMessage(`Clicked to view Task ID: ${taskId}`, 'info');
+            // Implement logic to scroll to or highlight the task
+        });
     });
-
-    socket.on('disconnect', () => {
-        console.log('Socket.IO: Disconnected from server');
-        showMessage('Real-time connection lost.', 'error');
-    });
-
-    socket.on('connect_error', (error) => {
-        console.error('Socket.IO Connection Error:', error);
-        showMessage('Real-time connection error.', 'error');
-    });
-
-    // --- Listen for Real-time Events from Backend ---
-
-    socket.on('taskCreated', (data) => {
-        showMessage(`New Task: "${data.task.title}" created!`, 'success');
-        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); 
-        fetchProjects(); // Projects might need re-fetch if task count affects their display
-    });
-
-    socket.on('taskUpdated', (data) => {
-        showMessage(`Task: "${data.task.title}" updated!`, 'success');
-        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters());
-    });
-
-    socket.on('taskDeleted', (data) => {
-        showMessage(`Task deleted!`, 'success');
-        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters());
-    });
-
-    socket.on('taskTagAdded', (data) => {
-        showMessage(`Tag added to task!`, 'success');
-        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); 
-    });
-
-    socket.on('taskTagRemoved', (data) => {
-        showMessage(`Tag removed from task!`, 'success');
-        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); 
-    });
-
-    socket.on('projectCreated', (data) => {
-        showMessage(`New Project: "${data.project.name}" created!`, 'success');
-        fetchProjects(); 
-    });
-
-    socket.on('projectUpdated', (data) => {
-        showMessage(`Project: "${data.project.name}" updated!`, 'success');
-        fetchProjects(); 
-    });
-
-    socket.on('projectDeleted', (data) => {
-        showMessage(`Project deleted!`, 'success');
-        fetchProjects(); 
-        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); 
-    });
-
-    socket.on('test_response', (data) => {
-        console.log('Received test_response:', data);
-        showMessage(data.message, 'info');
+    // Add event listeners for project links (if implemented)
+    notificationsList.querySelectorAll('.notification-project-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const projectId = e.target.dataset.projectId;
+            showMessage(`Clicked to view Project ID: ${projectId}`, 'info');
+            // Implement logic to switch to project tasks or highlight project
+        });
     });
 }
 
+function updateNotificationsBadge(count) {
+    if (notificationsBadge) {
+        if (count > 0) {
+            notificationsBadge.textContent = count;
+            notificationsBadge.classList.remove('hidden');
+        } else {
+            notificationsBadge.classList.add('hidden');
+        }
+    }
+}
+
+async function handleClearNotifications() {
+    // Get all unread notification IDs
+    const unreadNotifications = Array.from(notificationsList.children)
+                                    .filter(li => !li.classList.contains('bg-gray-100'))
+                                    .map(li => parseInt(li.dataset.notificationId));
+    
+    if (unreadNotifications.length === 0) {
+        showMessage('No unread notifications to clear.', 'info');
+        return;
+    }
+
+    try {
+        await fetchData('/notifications/mark-read', 'POST', { notificationIds: unreadNotifications });
+        showMessage('Notifications cleared!', 'success');
+        fetchNotifications(); // Re-fetch to update UI
+    } catch (error) {
+        showMessage(`Error clearing notifications: ${error.message}`, 'error');
+    }
+}
+
+function toggleNotificationsContainer() {
+    if (notificationsContainer) {
+        notificationsContainer.classList.toggle('hidden');
+        if (!notificationsContainer.classList.contains('hidden')) {
+            // When opening, ensure unread are fetched and then mark them read if visible
+            fetchNotifications(); // Refresh in case new ones arrived
+        }
+    }
+}
 
 // --- Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -1085,7 +1183,7 @@ document.addEventListener('DOMContentLoaded', () => {
     tagsList = document.getElementById('tags-list');
     noTagsMessage = document.getElementById('no-tags-message');
 
-    // NEW: Filter Elements
+    // Filter Elements
     taskFilterSearchInput = document.getElementById('task-filter-search');
     taskFilterPrioritySelect = document.getElementById('task-filter-priority');
     taskFilterStatusSelect = document.getElementById('task-filter-status');
@@ -1097,6 +1195,13 @@ document.addEventListener('DOMContentLoaded', () => {
     taskFilterDueDateEnd = document.getElementById('task-filter-due-date-end');
     taskFilterOrderBy = document.getElementById('task-filter-order-by');
     taskFilterOrderDirection = document.getElementById('task-filter-order-direction');
+
+    // NEW: Notification related DOM elements assignment
+    notificationsContainer = document.getElementById('notifications-container');
+    notificationsList = document.getElementById('notifications-list');
+    notificationsBadge = document.getElementById('notifications-badge');
+    clearNotificationsBtn = document.getElementById('clear-notifications-btn');
+    const toggleNotificationsBtn = document.getElementById('toggle-notifications-btn'); // Assuming a button to open/close it
 
 
     // Attach Event Listeners
@@ -1133,7 +1238,7 @@ document.addEventListener('DOMContentLoaded', () => {
         createTagForm.addEventListener('submit', handleCreateTag);
     }
 
-    // NEW: Event listeners for filter controls - Trigger applyFilters on input/change
+    // Event listeners for filter controls - Trigger applyFilters on input/change
     if (applyFiltersBtn) {
         applyFiltersBtn.addEventListener('click', applyFilters);
     }
@@ -1150,6 +1255,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (taskFilterDueDateEnd) taskFilterDueDateEnd.addEventListener('change', applyFilters);
     if (taskFilterOrderBy) taskFilterOrderBy.addEventListener('change', applyFilters);
     if (taskFilterOrderDirection) taskFilterOrderDirection.addEventListener('change', applyFilters);
+
+    // NEW: Notification event listeners
+    if (toggleNotificationsBtn) {
+        toggleNotificationsBtn.addEventListener('click', toggleNotificationsContainer);
+    }
+    if (clearNotificationsBtn) {
+        clearNotificationsBtn.addEventListener('click', handleClearNotifications);
+    }
 
 
     // Check for existing token/user in localStorage on page load
