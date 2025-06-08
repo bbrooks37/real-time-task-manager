@@ -17,14 +17,21 @@ module.exports = (io) => {
             body('username')
                 .trim()
                 .notEmpty().withMessage('Username is required.')
-                .isLength({ min: 3 }).withMessage('Username must be at least 3 characters long.'),
+                .isLength({ min: 3 }).withMessage('Username must be at least 3 characters long.')
+                .isAlphanumeric().withMessage('Username must contain only letters and numbers.')
+                .escape(), // Sanitize input
             body('email')
                 .trim()
                 .notEmpty().withMessage('Email is required.')
-                .isEmail().withMessage('Please provide a valid email address.'),
+                .isEmail().withMessage('Please provide a valid email address.')
+                .normalizeEmail(), // Sanitize email
             body('password')
                 .notEmpty().withMessage('Password is required.')
                 .isLength({ min: 6 }).withMessage('Password must be at least 6 characters long.')
+                .matches(/[A-Z]/).withMessage('Password must contain at least one uppercase letter.')
+                .matches(/[a-z]/).withMessage('Password must contain at least one lowercase letter.')
+                .matches(/[0-9]/).withMessage('Password must contain at least one digit.')
+                .matches(/[^A-Za-z0-9]/).withMessage('Password must contain at least one special character.')
         ],
         registerUser // Pass validation result to the controller
     );
@@ -36,7 +43,9 @@ module.exports = (io) => {
             // Validation chain for login
             body('email')
                 .trim()
-                .notEmpty().withMessage('Email is required.'),
+                .notEmpty().withMessage('Email is required.')
+                .isEmail().withMessage('Please provide a valid email address.')
+                .normalizeEmail(), // Sanitize email
             body('password')
                 .notEmpty().withMessage('Password is required.')
         ],

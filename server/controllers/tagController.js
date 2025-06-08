@@ -1,6 +1,7 @@
 // project1/server/controllers/tagController.js
 const db = require('../db'); // Ensure db is imported correctly
 const { validationResult } = require('express-validator');
+const { logActivity } = require('../utils/activityLogger'); // FIX: Corrected path from '../utils' to '../utlis'
 
 module.exports = (io) => {
     // Helper function to emit Socket.IO events for tags
@@ -25,8 +26,8 @@ module.exports = (io) => {
         }
 
         try {
-            // Check if tag already exists (case-insensitive for uniqueness)
-            const existingTag = await db.query('SELECT * FROM tags WHERE LOWER(name) = LOWER($1)', [name]);
+            // Check if tag already exists (case-insensitive for uniqueness) and is not soft-deleted
+            const existingTag = await db.query('SELECT * FROM tags WHERE LOWER(name) = LOWER($1) AND is_deleted = FALSE', [name]);
             if (existingTag.rows.length > 0) {
                 return res.status(409).json({ message: 'Tag with this name already exists.' });
             }
@@ -35,6 +36,7 @@ module.exports = (io) => {
                 `INSERT INTO tags (name, created_by) VALUES ($1, $2) RETURNING *`,
                 [name, created_by]
             );
+            await logActivity(created_by, 'CREATED', 'TAG', newTag.rows[0].id, { name: newTag.rows[0].name }); // Log activity
             emitTagEvent('tagCreated', newTag.rows[0]); // Emit event on creation
             res.status(201).json({ message: 'Tag created successfully!', tag: newTag.rows[0] });
         } catch (error) {
@@ -43,15 +45,17 @@ module.exports = (io) => {
         }
     };
 
-    // --- Get All Tags ---
+    // --- Get All Tags (Soft Deletion check) ---
     const getTags = async (req, res) => {
         try {
             // Explicitly select columns from tags (t) and username from users (u)
             const tags = await db.query(
                 `SELECT t.id, t.name, t.created_by, t.created_at, t.updated_at,
+                        t.is_deleted, -- Include is_deleted column
                         u.username AS created_by_username
                  FROM tags t
                  JOIN users u ON t.created_by = u.id
+                 WHERE t.is_deleted = FALSE -- NEW: Exclude soft-deleted tags
                  ORDER BY t.name ASC`
             );
             res.status(200).json({ message: 'Tags retrieved successfully!', tags: tags.rows });
@@ -61,17 +65,19 @@ module.exports = (io) => {
         }
     };
 
-    // --- Get Tag by ID ---
+    // --- Get Tag by ID (Soft Deletion check) ---
     const getTagById = async (req, res) => {
         const { id } = req.params;
         try {
             // Explicitly select columns from tags (t) and username from users (u)
             const tag = await db.query(
                 `SELECT t.id, t.name, t.created_by, t.created_at, t.updated_at,
+                        t.is_deleted, -- Include is_deleted column
                         u.username AS created_by_username
                  FROM tags t
                  JOIN users u ON t.created_by = u.id
-                 WHERE t.id = $1`, [id]
+                 WHERE t.id = $1 AND t.is_deleted = FALSE`, // NEW: Exclude soft-deleted tags
+                [id]
             );
             if (tag.rows.length === 0) {
                 return res.status(404).json({ message: 'Tag not found.' });
@@ -83,7 +89,7 @@ module.exports = (io) => {
         }
     };
 
-    // --- Update Tag ---
+    // --- Update Tag (Soft Deletion check) ---
     const updateTag = async (req, res) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
@@ -99,22 +105,36 @@ module.exports = (io) => {
         }
 
         try {
-            // Check if tag exists and was created by the current user
-            const existingTag = await db.query('SELECT created_by FROM tags WHERE id = $1', [id]);
-            if (existingTag.rows.length === 0 || existingTag.rows[0].created_by !== user_id) {
+            // Check if tag exists, is not deleted, and was created by the current user
+            const existingTagResult = await db.query('SELECT created_by, name FROM tags WHERE id = $1 AND is_deleted = FALSE', [id]);
+            if (existingTagResult.rows.length === 0) {
+                return res.status(404).json({ message: 'Tag not found or already deleted.' });
+            }
+            const existingTag = existingTagResult.rows[0];
+
+            if (existingTag.created_by !== user_id) {
                 return res.status(403).json({ message: 'You do not have permission to update this tag.' });
             }
 
-            // Check for duplicate name if changing
-            const duplicateNameCheck = await db.query('SELECT id FROM tags WHERE LOWER(name) = LOWER($1) AND id != $2', [name, id]);
+            // Check for duplicate name if changing and is not soft-deleted
+            const duplicateNameCheck = await db.query('SELECT id FROM tags WHERE LOWER(name) = LOWER($1) AND id != $2 AND is_deleted = FALSE', [name, id]);
             if (duplicateNameCheck.rows.length > 0) {
-                return res.status(409).json({ message: 'Another tag with this name already exists.' });
+                return res.status(409).json({ message: 'Another active tag with this name already exists.' });
             }
 
+            const oldDetails = { name: existingTag.name };
+            const newDetails = { name: name };
+
             const updatedTag = await db.query(
-                `UPDATE tags SET name = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+                `UPDATE tags SET name = $1, updated_at = NOW() WHERE id = $2 AND is_deleted = FALSE RETURNING *`, // NEW: Ensure not updating a deleted tag
                 [name, id]
             );
+            
+            if (updatedTag.rows.length === 0) {
+                return res.status(404).json({ message: 'Tag not found or unable to update (might be deleted).' });
+            }
+
+            await logActivity(user_id, 'UPDATED', 'TAG', id, { old: oldDetails, new: newDetails }); // Log activity
             emitTagEvent('tagUpdated', updatedTag.rows[0]); // Emit event on update
             res.status(200).json({ message: 'Tag updated successfully!', tag: updatedTag.rows[0] });
         } catch (error) {
@@ -123,27 +143,37 @@ module.exports = (io) => {
         }
     };
 
-    // --- Delete Tag ---
+    // --- Soft Delete Tag ---
     const deleteTag = async (req, res) => {
         const { id } = req.params;
-        const user_id = req.user.user_id; // Get authenticated user's ID
+        const user_id = req.user.user_id;
 
         try {
-            // Check if tag exists and was created by the current user
-            const existingTag = await db.query('SELECT created_by FROM tags WHERE id = $1', [id]);
-            if (existingTag.rows.length === 0 || existingTag.rows[0].created_by !== user_id) {
+            // Check if tag exists and is not already deleted
+            const existingTagResult = await db.query('SELECT created_by, name FROM tags WHERE id = $1 AND is_deleted = FALSE', [id]);
+            if (existingTagResult.rows.length === 0) {
+                return res.status(404).json({ message: 'Tag not found or already deleted.' });
+            }
+            const existingTag = existingTagResult.rows[0];
+
+            if (existingTag.created_by !== user_id) {
                 return res.status(403).json({ message: 'You do not have permission to delete this tag.' });
             }
             
-            // Delete associated task_tags entries first (if not handled by CASCADE)
-            await db.query('DELETE FROM task_tags WHERE tag_id = $1', [id]);
-
-            const deletedTag = await db.query('DELETE FROM tags WHERE id = $1 RETURNING id', [id]);
-            if (deletedTag.rows.length === 0) {
-                return res.status(404).json({ message: 'Tag not found.' });
+            // Soft delete the tag
+            const result = await db.query('UPDATE tags SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1 RETURNING id', [id]);
+            if (result.rows.length === 0) {
+                return res.status(404).json({ message: 'Tag not found or unable to delete.' });
             }
+
+            // Note: task_tags associations will implicitly be filtered out if tag is_deleted=TRUE
+            // You might want to explicitly delete task_tags associations or update them
+            // For now, filtering in getTasks is sufficient.
+            // await db.query('DELETE FROM task_tags WHERE tag_id = $1', [id]); // Only if hard deleting
+
+            await logActivity(user_id, 'SOFT_DELETED', 'TAG', id, { name: existingTag.name }); // Log activity
             emitTagEvent('tagDeleted', { id: id }); // Emit event on deletion
-            res.status(200).json({ message: 'Tag deleted successfully!' });
+            res.status(200).json({ message: 'Tag soft deleted successfully!' });
         } catch (error) {
             console.error('Error deleting tag:', error.message, error.stack);
             res.status(500).json({ message: 'Internal server error during tag deletion.' });
@@ -155,6 +185,6 @@ module.exports = (io) => {
         getTags,
         getTagById,
         updateTag,
-        deleteTag
+        deleteTag // This is now a soft delete
     };
 };

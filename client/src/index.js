@@ -1,8 +1,8 @@
 // client/src/index.js
 
 // --- Global Variables ---
-// Directly specify the API_BASE_URL to ensure it's always correct,
-// bypassing potential issues with process.env in some frontend build environments.
+// Directly specify the API_BASE_URL to ensure it's always correct.
+// This should point to your deployed Heroku backend URL.
 const API_BASE_URL = 'https://real-time-task-manager-fac11501856a.herokuapp.com/api'; 
 
 let socket; 
@@ -67,7 +67,7 @@ function showMessage(message, type = 'success') {
 
 // Updated showAuthMessage to handle validation errors from backend
 function showAuthMessage(errorData, type = 'error') {
-    if (!authMessageDiv) { 
+    if (!authMessageDiv) { // FIX: Changed authAuthMessageDiv to authMessageDiv
         console.log("Auth Message (authMessageDiv not ready):", errorData);
         return;
     }
@@ -88,8 +88,8 @@ function showAuthMessage(errorData, type = 'error') {
 
 
 function clearAuthMessages() {
-    if (authMessageDiv) { 
-        authAuthMessageDiv.textContent = '';
+    if (authMessageDiv) { // FIX: Changed authAuthMessageDiv to authMessageDiv
+        authMessageDiv.textContent = '';
     }
 }
 
@@ -746,7 +746,7 @@ function renderTask(task) {
                 }
             } else {
                 showMessage('You do not have permission to remove tags from this task.', 'error');
-                removeTagBtn.disabled = true; // Disable button if not authorized
+                removeTagBtn.disabled = true;
                 removeTagBtn.classList.add('opacity-50', 'cursor-not-allowed');
             }
         });
@@ -1105,6 +1105,93 @@ function toggleNotificationsContainer() {
         }
     }
 }
+
+// --- Socket.IO Client Initialization ---
+function initializeSocketIO() {
+    if (socket && socket.connected) {
+        console.log('Socket.IO already connected.');
+        return;
+    }
+
+    // Connect Socket.IO to the root of the API_BASE_URL (e.g., https://real-time-task-manager-fac11501856a.herokuapp.com)
+    // Remove '/api' from API_BASE_URL for Socket.IO connection
+    socket = io(API_BASE_URL.replace('/api', ''), {
+        // No specific path needed if Socket.IO is mounted at the root on the server
+        // If your server mounted Socket.IO on a specific path like '/socket.io', you'd add:
+        // path: '/socket.io'
+    });
+
+    socket.on('connect', () => {
+        console.log(`Socket.IO: Connected to server with ID: ${socket.id}`);
+        showMessage('Real-time connection established!', 'success');
+    });
+
+    socket.on('disconnect', () => {
+        console.log('Socket.IO: Disconnected from server');
+        showMessage('Real-time connection lost.', 'error');
+    });
+
+    socket.on('connect_error', (error) => {
+        console.error('Socket.IO Connection Error:', error);
+        showMessage('Real-time connection error.', 'error');
+    });
+
+    // --- Listen for Real-time Events from Backend ---
+
+    socket.on('taskCreated', (data) => {
+        showMessage(`New Task: "${data.task.title}" created!`, 'success');
+        // Re-fetch tasks and projects to update UI
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters());
+        fetchProjects(); 
+    });
+
+    socket.on('taskUpdated', (data) => {
+        showMessage(`Task: "${data.task.title}" updated!`, 'success');
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters());
+    });
+
+    socket.on('taskDeleted', (data) => {
+        showMessage(`Task deleted!`, 'success');
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters());
+    });
+
+    socket.on('taskTagAdded', (data) => {
+        showMessage(`Tag added to task!`, 'success');
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); 
+    });
+
+    socket.on('taskTagRemoved', (data) => {
+        showMessage(`Tag removed from task!`, 'success');
+        fetchTasks(currentProjectIdFilter, currentProjectNameSpan.textContent, getCurrentFilters()); 
+    });
+
+    socket.on('projectCreated', (data) => {
+        showMessage(`New Project: "${data.project.name}" created!`, 'success');
+        fetchProjects(); 
+    });
+
+    socket.on('projectUpdated', (data) => {
+        showMessage(`Project: "${data.project.name}" updated!`, 'success');
+        fetchProjects(); 
+    });
+
+    socket.on('projectDeleted', (data) => {
+        showMessage(`Project deleted!`, 'success');
+        fetchProjects(); 
+        fetchTasks(); 
+    });
+
+    socket.on('newNotification', (data) => {
+        showMessage(data.message, 'info');
+        fetchNotifications(); // Refresh notifications when a new one arrives
+    });
+
+    socket.on('test_response', (data) => {
+        console.log('Received test_response:', data);
+        showMessage(data.message, 'info');
+    });
+}
+
 
 // --- Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {

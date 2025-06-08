@@ -1,6 +1,7 @@
 // project1/server/routes/tagRoutes.js
 const express = require('express');
 const verifyToken = require('../middleware/authMiddleware'); // Import authentication middleware
+const { body, param } = require('express-validator'); // NEW: Import body, param for validation
 
 // Export a function that accepts io as an argument
 module.exports = (io) => {
@@ -18,21 +19,49 @@ module.exports = (io) => {
     // Apply verifyToken middleware to all routes in this router
     router.use(verifyToken);
 
-    // Tag CRUD Endpoints:
-    // POST /api/tags - Create a new tag
-    router.post('/', createTag);
+    // Tag CRUD Endpoints with validation:
+    router.post(
+        '/', 
+        [
+            body('name')
+                .trim()
+                .notEmpty().withMessage('Tag name is required.')
+                .isLength({ min: 1, max: 50 }).withMessage('Tag name must be between 1 and 50 characters.')
+                .escape() // Sanitize input
+        ],
+        createTag
+    );
 
-    // GET /api/tags - Get all tags
     router.get('/', getTags);
 
-    // GET /api/tags/:id - Get a single tag by its ID
-    router.get('/:id', getTagById);
+    router.get(
+        '/:id', 
+        [
+            param('id').isInt().withMessage('Tag ID must be an integer.')
+        ],
+        getTagById
+    );
 
-    // PUT /api/tags/:id - Update an existing tag by its ID
-    router.put('/:id', updateTag);
+    router.put(
+        '/:id', 
+        [
+            param('id').isInt().withMessage('Tag ID must be an integer.'),
+            body('name')
+                .trim()
+                .notEmpty().withMessage('Tag name is required.')
+                .isLength({ min: 1, max: 50 }).withMessage('Tag name must be between 1 and 50 characters.')
+                .escape()
+        ],
+        updateTag
+    );
 
-    // DELETE /api/tags/:id - Delete a tag by its ID
-    router.delete('/:id', deleteTag);
+    router.delete(
+        '/:id', 
+        [
+            param('id').isInt().withMessage('Tag ID must be an integer.')
+        ],
+        deleteTag
+    );
 
-    return router; // Return the configured router
+    return router; 
 };

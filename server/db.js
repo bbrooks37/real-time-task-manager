@@ -1,25 +1,34 @@
 // project1/server/db.js
 const { Pool } = require('pg');
-require('dotenv').config({ path: '../.env' }); // Adjust path if .env is in project root
+// REMOVED: require('dotenv').config({ path: '../.env' }); // Not needed for Heroku env vars
+
+// IMPORTANT: On Heroku, the DATABASE_URL environment variable is automatically set.
+// The 'pg' library can connect directly using this URL.
+// If you're running locally, ensure your DATABASE_URL is set in your local .env file.
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+    console.error('DATABASE_URL is not set. Please set it in your environment variables.');
+    process.exit(1); // Exit if no database URL is found
+}
 
 const pool = new Pool({
-    user: process.env.DB_USER,
-    host: process.env.DB_HOST,
-    database: process.env.DB_NAME,
-    password: process.env.DB_PASSWORD,
-    port: process.env.DB_PORT || 5432, // Default PostgreSQL port
+    connectionString: connectionString,
+    ssl: {
+        rejectUnauthorized: false // This is CRITICAL for Heroku Postgres to work with Node.js
+    }
 });
 
-pool.on('connect', () => {
-    console.log('Connected to the PostgreSQL database!');
-});
+// Test Database Connection
+pool.query('SELECT NOW() AS current_time')
+    .then(res => {
+        console.log('Database connection successful (db.js):', res.rows[0].current_time);
+    })
+    .catch(err => {
+        console.error('Database connection failed (db.js):', err.message);
+        // Important: If this error occurs, your app will crash.
+        // The process.exit(1) ensures Heroku knows the app failed to start.
+        process.exit(1);
+    });
 
-pool.on('error', (err, client) => {
-    console.error('Unexpected error on idle client', err);
-    process.exit(-1); // Exit process if cannot connect or critical error
-});
-
-module.exports = {
-    query: (text, params) => pool.query(text, params),
-    getClient: () => pool.connect(), // Added to allow individual client connections
-};
+module.exports = pool;

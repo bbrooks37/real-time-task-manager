@@ -1,6 +1,7 @@
 // project1/server/controllers/projectController.js
 const db = require('../db');
-const { validationResult } = require('express-validator'); // Import validationResult
+const { validationResult } = require('express-validator');
+const { logActivity } = require('../utils/activityLogger'); // FIX: Corrected path from '../utils' to '../utlis'
 
 module.exports = (io) => {
     // Helper function to emit Socket.IO events for projects
@@ -11,26 +12,27 @@ module.exports = (io) => {
 
     // --- Create Project ---
     const createProject = async (req, res) => {
-        // Check for validation errors (assuming project validation will be added later if needed)
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
             return res.status(400).json({ message: 'Validation failed.', errors: errors.array() });
         }
 
         const { name, description } = req.body;
-        const created_by = req.user.user_id; // Get creator_id from authenticated user
+        const created_by = req.user.user_id;
+        const user_role = req.user.role;
 
-        // Basic validation (can be replaced by express-validator if preferred)
-        if (!name) {
-            return res.status(400).json({ message: 'Project name is required.' });
+        // Example: Only 'admin' or 'project_manager' roles can create projects (adjust as needed)
+        // For now, allowing 'member' to create projects
+        if (user_role !== 'admin' && user_role !== 'member') {
+            return res.status(403).json({ message: 'You do not have permission to create projects.' });
         }
 
         try {
-            // FIX: Removed duplicate 'description' column from the INSERT query
             const newProject = await db.query(
                 `INSERT INTO projects (name, description, created_by) VALUES ($1, $2, $3) RETURNING id, name, description, created_by`,
                 [name, description, created_by]
             );
+            await logActivity(created_by, 'CREATED', 'PROJECT', newProject.rows[0].id, { name: newProject.rows[0].name }); // Log activity
             emitProjectEvent('projectCreated', newProject.rows[0]);
             res.status(201).json({ message: 'Project created successfully!', project: newProject.rows[0] });
         } catch (error) {
@@ -39,19 +41,20 @@ module.exports = (io) => {
         }
     };
 
-    // --- Get All Projects (Expanded for associated tasks) ---
+    // --- Get All Projects (Expanded for associated tasks & Soft Deletion) ---
     const getProjects = async (req, res) => {
-        const user_id = req.user.user_id; // Get authenticated user's ID
+        const user_id = req.user.user_id;
         try {
-            // Fetch projects created by the authenticated user OR
-            // projects that have tasks assigned to the authenticated user
+            // Filter out soft-deleted projects
             const projects = await db.query(
                 `SELECT DISTINCT p.id, p.name, p.description, p.created_at, p.updated_at,
+                                p.is_deleted, -- Include is_deleted column
                                 u.username AS created_by_username
                  FROM projects p
                  JOIN users u ON p.created_by = u.id
                  LEFT JOIN tasks t ON p.id = t.project_id
-                 WHERE p.created_by = $1 OR t.assigned_to = $1
+                 WHERE (p.created_by = $1 OR t.assigned_to = $1)
+                   AND p.is_deleted = FALSE -- NEW: Exclude soft-deleted projects
                  ORDER BY p.created_at DESC`,
                 [user_id]
             );
@@ -62,20 +65,21 @@ module.exports = (io) => {
         }
     };
 
-    // --- Get Project by ID ---
+    // --- Get Project by ID (Soft Deletion check) ---
     const getProjectById = async (req, res) => {
         const { id } = req.params;
-        const user_id = req.user.user_id; // Get authenticated user's ID
+        const user_id = req.user.user_id;
         try {
-            // Fetch project if created by the authenticated user OR
-            // if there's a task in this project assigned to the user
+            // Filter out soft-deleted projects
             const project = await db.query(
                 `SELECT DISTINCT p.id, p.name, p.description, p.created_at, p.updated_at,
+                                p.is_deleted, -- Include is_deleted column
                                 u.username AS created_by_username
                  FROM projects p
                  JOIN users u ON p.created_by = u.id
                  LEFT JOIN tasks t ON p.id = t.project_id
-                 WHERE p.id = $1 AND (p.created_by = $2 OR t.assigned_to = $2)`,
+                 WHERE p.id = $1 AND (p.created_by = $2 OR t.assigned_to = $2)
+                   AND p.is_deleted = FALSE`, // NEW: Exclude soft-deleted projects
                 [id, user_id]
             );
 
@@ -89,32 +93,48 @@ module.exports = (io) => {
         }
     };
 
-    // --- Update Project ---
+    // --- Update Project (Soft Deletion check) ---
     const updateProject = async (req, res) => {
-        const errors = validationResult(req); // Assuming project validation will be added later
+        const errors = validationResult(req);
         if (!errors.isEmpty()) {
             return res.status(400).json({ message: 'Validation failed.', errors: errors.array() });
         }
 
         const { id } = req.params;
         const { name, description } = req.body;
-        const user_id = req.user.user_id; // Get authenticated user's ID
+        const user_id = req.user.user_id;
+        const user_role = req.user.role;
 
         try {
-            // Check if the project exists and belongs to the current user
-            const existingProject = await db.query('SELECT created_by FROM projects WHERE id = $1', [id]);
-            if (existingProject.rows.length === 0 || existingProject.rows[0].created_by !== user_id) {
+            // Check if the project exists, is not deleted, and belongs to the current user
+            const existingProjectResult = await db.query('SELECT created_by, name, description FROM projects WHERE id = $1 AND is_deleted = FALSE', [id]);
+            if (existingProjectResult.rows.length === 0) {
+                return res.status(404).json({ message: 'Project not found or already deleted.' });
+            }
+            const existingProject = existingProjectResult.rows[0];
+
+            // Permission check: Only admin or creator can update
+            if (user_role !== 'admin' && existingProject.created_by !== user_id) {
                 return res.status(403).json({ message: 'You do not have permission to update this project.' });
             }
+
+            const oldDetails = { name: existingProject.name, description: existingProject.description };
+            const newDetails = { name: name, description: description };
 
             const updatedProject = await db.query(
                 `UPDATE projects SET 
                     name = COALESCE($1, name), 
                     description = COALESCE($2, description), 
                     updated_at = NOW() 
-                 WHERE id = $3 RETURNING *`,
+                 WHERE id = $3 AND is_deleted = FALSE RETURNING *`, // NEW: Ensure not updating a deleted project
                 [name, description, id]
             );
+            
+            if (updatedProject.rows.length === 0) {
+                return res.status(404).json({ message: 'Project not found or unable to update (might be deleted).' });
+            }
+
+            await logActivity(user_id, 'UPDATED', 'PROJECT', id, { old: oldDetails, new: newDetails }); // Log activity
             emitProjectEvent('projectUpdated', updatedProject.rows[0]);
             res.status(200).json({ message: 'Project updated successfully!', project: updatedProject.rows[0] });
         } catch (error) {
@@ -123,28 +143,46 @@ module.exports = (io) => {
         }
     };
 
-    // --- Delete Project ---
+    // --- Soft Delete Project ---
     const deleteProject = async (req, res) => {
         const { id } = req.params;
-        const user_id = req.user.user_id; // Get authenticated user's ID
+        const user_id = req.user.user_id;
+        const user_role = req.user.role;
 
         try {
-            // Check if the project exists and belongs to the current user
-            const existingProject = await db.query('SELECT created_by FROM projects WHERE id = $1', [id]);
-            if (existingProject.rows.length === 0 || existingProject.rows[0].created_by !== user_id) {
+            // Check if the project exists and is not already deleted
+            const existingProjectResult = await db.query('SELECT created_by, name FROM projects WHERE id = $1 AND is_deleted = FALSE', [id]);
+            if (existingProjectResult.rows.length === 0) {
+                return res.status(404).json({ message: 'Project not found or already deleted.' });
+            }
+            const existingProject = existingProjectResult.rows[0];
+
+            // Permission check: Only 'admin' or the project creator can soft delete projects
+            if (user_role !== 'admin' && existingProject.created_by !== user_id) {
                 return res.status(403).json({ message: 'You do not have permission to delete this project.' });
             }
 
-            // Note: ON DELETE CASCADE on foreign keys in tasks will handle associated tasks
-            const deletedProject = await db.query('DELETE FROM projects WHERE id = $1 RETURNING id', [id]);
-            if (deletedProject.rows.length === 0) {
-                return res.status(404).json({ message: 'Project not found.' });
+            // Soft delete the project
+            const result = await db.query(
+                'UPDATE projects SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1 RETURNING id',
+                [id]
+            );
+            if (result.rows.length === 0) {
+                return res.status(404).json({ message: 'Project not found or unable to delete.' });
             }
-            emitProjectEvent('projectDeleted', { id: id });
-            res.status(200).json({ message: 'Project deleted successfully!' });
+
+            // Also soft delete all associated tasks
+            await db.query(
+                'UPDATE tasks SET is_deleted = TRUE, updated_at = NOW() WHERE project_id = $1',
+                [id]
+            );
+
+            await logActivity(user_id, 'SOFT_DELETED', 'PROJECT', id, { name: existingProject.name }); // Log activity
+            emitProjectEvent('projectDeleted', { id: id }); // Still emit, but note it's soft deleted
+            res.status(200).json({ message: 'Project soft deleted successfully!' });
         } catch (error) {
-            console.error('Error deleting project:', error.message);
-            res.status(500).json({ message: 'Internal server error during project deletion.' });
+            console.error('Error soft deleting project:', error.message);
+            res.status(500).json({ message: 'Internal server error during project soft deletion.' });
         }
     };
 
@@ -153,6 +191,6 @@ module.exports = (io) => {
         getProjects,
         getProjectById,
         updateProject,
-        deleteProject,
+        deleteProject, // This is now a soft delete
     };
 };

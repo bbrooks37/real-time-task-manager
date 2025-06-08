@@ -1,14 +1,18 @@
 // project1/server/middleware/authMiddleware.js
 const jwt = require('jsonwebtoken');
 
-// Load environment variables for JWT_SECRET
-require('dotenv').config({ path: '.../.env' }); // Adjust path as per your .env location
+// REMOVED: require('dotenv').config({ path: '../.env' }); // Not needed for Heroku env vars
 
 const verifyToken = (req, res, next) => {
     // Get token from header, cookie, or body
     // For simplicity, we'll primarily use the 'Authorization' header (Bearer Token)
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1]; // Extract token from "Bearer TOKEN"
+
+    if (!process.env.JWT_SECRET) {
+        console.error('JWT_SECRET is not defined in environment variables for authMiddleware.');
+        return res.status(500).json({ message: 'Server configuration error: JWT secret missing.' });
+    }
 
     if (!token) {
         // No token provided, user is not authenticated
